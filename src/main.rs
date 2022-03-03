@@ -1,53 +1,80 @@
-use tokio::{net::TcpListener, io::AsyncWriteExt, io::BufReader, io::AsyncBufReadExt, sync::broadcast, io::AsyncReadExt };
-use std::str;
-use std::io;
-use std::net::SocketAddr;
+use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::{
+     Kademlia,
+     KademliaEvent
+};
+use libp2p::{
+    development_transport, 
+    identity,
+    mdns::{Mdns, MdnsConfig, MdnsEvent},
+    NetworkBehaviour, 
+    PeerId, 
+    Swarm,
+    swarm::{NetworkBehaviourEventProcess, SwarmEvent}
+};
+use async_std::{task, io};
+use futures::{prelude::*};
+use std::error::Error;
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
-    let listener = TcpListener::bind("192.168.0.248:8080").await?;
 
-    let (tx, _rx) = broadcast::channel::<(String, SocketAddr)>(20);
+async fn create_swarm() -> Swarm<MyBehaviour> {
+	let local_key = identity::Keypair::generate_ed25519();
+	let local_peer_id = PeerId::from(local_key.public());
 
-    loop {
-        let (mut socket, addr) = listener.accept().await?;
-        println!("new client {}", addr);
+	let transport = development_transport(local_key).await.unwrap();
 
-        let tx = tx.clone();
-        let mut rx = tx.subscribe();
-
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            let bytes_read  = socket.read(&mut buffer).await.unwrap();
-
-            let username = str::from_utf8(&buffer[..bytes_read - 2]).unwrap();
-
-            let (reader, mut writer) = socket.split(); 
-            let mut reader = BufReader::new(reader);
-            let mut line = String::new();
-
-            loop {
-                tokio::select! {
-                    bytes_read = reader.read_line(&mut line) => {
-                        if bytes_read.unwrap() == 0 {
-                            break
-                        }
-
-                        let msg = format!("{}: {}", username, line.clone());
-
-                        tx.send((msg, addr)).unwrap();
-                        line.clear();
-                    }, 
-                    msg = rx.recv() => {
-                        let (msg, other_addr) = msg.unwrap();
-
-                        if addr != other_addr {
-                            writer.write_all(msg.as_bytes()).await.unwrap();
-                        }
-                    }
-                }
-            }
-        });
-    }
+	let store = MemoryStore::new(local_peer_id);
+        let kademlia = Kademlia::new(local_peer_id, store);
+        let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
+        let behaviour = MyBehaviour { kademlia, mdns };
+        Swarm::new(transport, behaviour, local_peer_id)
 }
 
+#[derive(NetworkBehaviour)]
+#[behaviour(event_process = true)]
+struct MyBehaviour {
+	kademlia: Kademlia<MemoryStore>,
+	mdns: Mdns,
+}
+
+impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
+	fn inject_event(&mut self, event: MdnsEvent) {
+		// println!("MDNS event, {:?}", event);
+		if let MdnsEvent::Discovered(list) = event {
+			for (peer_id, multiaddr) in list {
+				println!("{:?}, {:?}", peer_id, multiaddr);
+				// self.kademlia.add_address(&peer_id, multiaddr);
+			}
+		}
+	}
+}
+
+impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
+	fn inject_event(&mut self, msg: KademliaEvent) {
+		println!("{:?}", msg);
+	}
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+	let mut swarm = create_swarm().await;
+
+	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+
+	// Listen on all interfaces and whatever port the OS assigns.
+	swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+
+	loop {
+		tokio::select! {
+			line = stdin.select_next_some() => {
+				println!("{}", line.expect("stdin closed"))
+			},
+			event = swarm.select_next_some() => match event {
+				SwarmEvent::NewListenAddr { address, .. } => {
+					println!("Listening in {:?}", address);
+				},
+				_ => {}
+			}
+		}
+	}
+}
