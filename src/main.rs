@@ -1,7 +1,10 @@
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{
      Kademlia,
-     KademliaEvent
+     KademliaEvent,
+     record::Key,
+     Quorum,
+     Record
 };
 use libp2p::{
     development_transport, 
@@ -43,7 +46,7 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 		if let MdnsEvent::Discovered(list) = event {
 			for (peer_id, multiaddr) in list {
 				println!("{:?}, {:?}", peer_id, multiaddr);
-				// self.kademlia.add_address(&peer_id, multiaddr);
+				self.kademlia.add_address(&peer_id, multiaddr);
 			}
 		}
 	}
@@ -62,12 +65,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 
 	// Listen on all interfaces and whatever port the OS assigns.
-	swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
 
 	loop {
 		tokio::select! {
 			line = stdin.select_next_some() => {
-				println!("{}", line.expect("stdin closed"))
+				handle_input(&mut swarm.behaviour_mut().kademlia, line.expect("stdin closed"));
 			},
 			event = swarm.select_next_some() => match event {
 				SwarmEvent::NewListenAddr { address, .. } => {
@@ -76,5 +79,57 @@ async fn main() -> Result<(), Box<dyn Error>> {
 				_ => {}
 			}
 		}
+	}
+}
+
+fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
+	let mut args = line.split(' '); 
+
+	match args.next() {
+		Some("GET") => {
+			let key = {
+				match args.next() {
+					Some(key) => Key::new(&key),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};
+			kad.get_record(&key, Quorum::One);
+		},
+		Some("PUT") => {
+			let key = {
+				match args.next() {
+					Some(key) => Key::new(&key),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};
+
+			let value = {
+				match args.next() {
+					Some(value) => value.as_bytes().to_vec(),
+					None => {
+						eprintln!("Expected value");
+						return;
+					}
+				}
+			};
+
+			let record = Record {
+				key,
+				value,
+				publisher: None,
+				expires: None,
+			};
+
+			kad
+				.put_record(record, Quorum::One)
+				.expect("Failed to store record locally.");
+		},
+		_ => {}
 	}
 }
