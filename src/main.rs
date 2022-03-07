@@ -130,6 +130,19 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 				.put_record(record, Quorum::One)
 				.expect("Failed to store record locally.");
 		},
+		Some("GET_PROVIDERS") => {
+			let key = {
+				match args.next() {
+					Some(key) => Key::new(&key),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};
+
+			kad.get_providers(key);
+		},
 		_ => {}
 	}
 }
