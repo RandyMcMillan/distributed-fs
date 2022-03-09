@@ -19,6 +19,8 @@ use async_std::{task, io};
 use futures::{prelude::*};
 use std::error::Error;
 
+mod entry;
+use entry::Entry;
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -101,7 +103,7 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 		Some("PUT") => {
 			let key = {
 				match args.next() {
-					Some(key) => Key::new(&key),
+					Some(key) => key,
 					None => {
 						eprintln!("Expected key");
 						return;
@@ -119,8 +121,15 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 				}
 			};
 
+			let _x = Entry {
+				filename: String::from(key),
+				user: String::from("username")
+			};
+
+			println!("{:?}", _x);
+
 			let record = Record {
-				key,
+				key: Key::new(&key),
 				value,
 				publisher: None,
 				expires: None,
@@ -142,6 +151,21 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 			};
 
 			kad.get_providers(key);
+		},
+		Some("PUT_PROVIDER") => {
+			let key = {
+				match args.next() {
+					Some(key) => Key::new(&key),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};
+
+			kad
+				.start_providing(key)
+				.expect("Failed to start providing key");
 		},
 		_ => {}
 	}
