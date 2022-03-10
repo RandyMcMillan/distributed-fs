@@ -111,7 +111,7 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 				}
 			};
 
-			let value = {
+			let _value = {
 				match args.next() {
 					Some(value) => value.as_bytes().to_vec(),
 					None => {
@@ -121,12 +121,12 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 				}
 			};
 
-			let _x = Entry {
+			let new_entry = Entry {
 				filename: String::from(key),
 				user: String::from("username")
 			};
 
-			println!("{:?}", _x);
+			let value = serde_json::to_vec(&new_entry).unwrap();
 
 			let record = Record {
 				key: Key::new(&key),
