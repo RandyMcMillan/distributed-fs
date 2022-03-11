@@ -1,3 +1,4 @@
+use std::fs;
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{
      Kademlia,
@@ -62,6 +63,8 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+	let username = fs::read_to_string("user")?;
+
 	let mut swarm = create_swarm().await;
 
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
@@ -72,7 +75,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	loop {
 		tokio::select! {
 			line = stdin.select_next_some() => {
-				handle_input(&mut swarm.behaviour_mut().kademlia, line.expect("stdin closed"));
+				handle_input(
+					&mut swarm.behaviour_mut().kademlia,
+					line.expect("stdin closed"),
+					&username
+				);
 			},
 			event = swarm.select_next_some() => match event {
 				SwarmEvent::NewListenAddr { address, .. } => {
@@ -84,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 }
 
-fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
+fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String, username: &str) {
 	let mut args = line.split(' '); 
 
 	match args.next() {
@@ -122,8 +129,8 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String) {
 			};
 
 			let new_entry = Entry {
-				filename: String::from(key),
-				user: String::from("username")
+				filename: key.to_string(),
+				user: username.to_string() 
 			};
 
 			let value = serde_json::to_vec(&new_entry).unwrap();
