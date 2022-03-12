@@ -2,7 +2,6 @@ use std::fs;
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{
      Kademlia,
-     KademliaEvent,
      record::Key,
      Quorum,
      Record
@@ -10,18 +9,20 @@ use libp2p::kad::{
 use libp2p::{
     development_transport, 
     identity,
-    mdns::{Mdns, MdnsConfig, MdnsEvent},
-    NetworkBehaviour, 
+    mdns::{Mdns, MdnsConfig},
     PeerId, 
     Swarm,
-    swarm::{NetworkBehaviourEventProcess, SwarmEvent}
+    swarm::{ SwarmEvent}
 };
 use async_std::{task, io};
 use futures::{prelude::*};
 use std::error::Error;
 
 mod entry;
+mod behaviour;
+
 use entry::Entry;
+use behaviour::MyBehaviour;
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -34,31 +35,6 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
         let behaviour = MyBehaviour { kademlia, mdns };
         Swarm::new(transport, behaviour, local_peer_id)
-}
-
-#[derive(NetworkBehaviour)]
-#[behaviour(event_process = true)]
-struct MyBehaviour {
-	kademlia: Kademlia<MemoryStore>,
-	mdns: Mdns,
-}
-
-impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
-	fn inject_event(&mut self, event: MdnsEvent) {
-		// println!("MDNS event, {:?}", event);
-		if let MdnsEvent::Discovered(list) = event {
-			for (peer_id, multiaddr) in list {
-				println!("{:?}, {:?}", peer_id, multiaddr);
-				self.kademlia.add_address(&peer_id, multiaddr);
-			}
-		}
-	}
-}
-
-impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
-	fn inject_event(&mut self, msg: KademliaEvent) {
-		println!("{:?}", msg);
-	}
 }
 
 #[tokio::main]
@@ -108,19 +84,19 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String, username: &str) {
 			kad.get_record(&key, Quorum::One);
 		},
 		Some("PUT") => {
-			let key = {
+			let path = {
 				match args.next() {
-					Some(key) => key,
+					Some(key) => key.to_string(),
 					None => {
 						eprintln!("Expected key");
 						return;
 					}
 				}
-			};
+			};	
 
-			let _value = {
+			let public = {
 				match args.next() {
-					Some(value) => value.as_bytes().to_vec(),
+					Some(value) => value == "true",
 					None => {
 						eprintln!("Expected value");
 						return;
@@ -128,15 +104,19 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String, username: &str) {
 				}
 			};
 
+			let read_users: Vec<String> = if public { Vec::new() } else { args.map(|s| s.to_string()).collect() };
+
 			let new_entry = Entry {
-				filename: key.to_string(),
-				user: username.to_string() 
+				path,
+				user: username.to_string(),
+				public,
+				read_users 
 			};
 
 			let value = serde_json::to_vec(&new_entry).unwrap();
 
 			let record = Record {
-				key: Key::new(&key),
+				key: Key::new(&username),
 				value,
 				publisher: None,
 				expires: None,
