@@ -17,6 +17,8 @@ use libp2p::{
 use async_std::{task, io};
 use futures::{prelude::*};
 use std::error::Error;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 mod entry;
 mod behaviour;
@@ -33,7 +35,11 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
 	let store = MemoryStore::new(local_peer_id);
         let kademlia = Kademlia::new(local_peer_id, store);
         let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
-        let behaviour = MyBehaviour { kademlia, mdns };
+        let behaviour = MyBehaviour { 
+		kademlia, 
+		mdns, 
+		test: Arc::new(Mutex::new(HashMap::new()))
+	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
@@ -52,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		tokio::select! {
 			line = stdin.select_next_some() => {
 				handle_input(
-					&mut swarm.behaviour_mut().kademlia,
+					&mut swarm.behaviour_mut(),
 					line.expect("stdin closed"),
 					&username
 				);
@@ -67,8 +73,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 }
 
-fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String, username: &str) {
+fn handle_input(behaviour: &mut MyBehaviour, line: String, username: &str) {
 	let mut args = line.split(' '); 
+
+	let kad = &mut behaviour.kademlia;
 
 	match args.next() {
 		Some("GET") => {
@@ -81,7 +89,11 @@ fn handle_input(kad: &mut Kademlia<MemoryStore>, line: String, username: &str) {
 					}
 				}
 			};
-			kad.get_record(&key, Quorum::One);
+
+
+			let query_id = kad.get_record(&key, Quorum::One);
+			behaviour.test.lock().unwrap().insert(query_id, String::from(username));
+
 		},
 		Some("PUT") => {
 			let path = {

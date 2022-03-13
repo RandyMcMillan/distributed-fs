@@ -4,7 +4,8 @@ use libp2p::kad::{
      KademliaEvent,
      QueryResult,
      PeerRecord, 
-     Record
+     Record,
+     QueryId
 };
 use libp2p::{
     mdns::{Mdns, MdnsEvent},
@@ -12,8 +13,9 @@ use libp2p::{
     swarm::{NetworkBehaviourEventProcess}
 };
 use std::str;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
-// pub mod entry;
 use crate::entry::Entry;
 
 #[derive(NetworkBehaviour)]
@@ -21,7 +23,9 @@ use crate::entry::Entry;
 pub struct MyBehaviour {
 	pub kademlia: Kademlia<MemoryStore>,
 	pub mdns: Mdns,
-}
+	#[behaviour(ignore)]
+	pub test: Arc<Mutex<HashMap<QueryId, String>>>
+}	
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 	fn inject_event(&mut self, event: MdnsEvent) {
@@ -52,8 +56,10 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 							id
 						);
 
+
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
 						println!("{:?}", entry);
+						println!("{:?}", self.test);
 					}
 				},
 				QueryResult::GetRecord(Err(err)) => {
