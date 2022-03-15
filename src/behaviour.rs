@@ -24,12 +24,11 @@ pub struct MyBehaviour {
 	pub kademlia: Kademlia<MemoryStore>,
 	pub mdns: Mdns,
 	#[behaviour(ignore)]
-	pub test: Arc<Mutex<HashMap<QueryId, String>>>
+	pub users: Arc<Mutex<HashMap<QueryId, String>>>
 }	
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 	fn inject_event(&mut self, event: MdnsEvent) {
-		// println!("MDNS event, {:?}", event);
 		if let MdnsEvent::Discovered(list) = event {
 			for (peer_id, multiaddr) in list {
 				println!("{:?}, {:?}", peer_id, multiaddr);
@@ -47,23 +46,20 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 					for PeerRecord {
 						record: Record { key, value, .. },
 						..
-					} in ok.records
-					{
-						println!(
-							"Got record {:?} {:?}\n{:?}",
-							str::from_utf8(key.as_ref()).unwrap(),
-							str::from_utf8(&value).unwrap(),
-							id
-						);
-
-
+					} in ok.records {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
-						println!("{:?}", entry);
-						println!("{:?}", self.test);
+						let username = self.users.lock().unwrap().remove(&id).unwrap();
+
+						if entry.user == username || entry.public || entry.read_users.contains(&username)  {
+							println!("{:?}", entry);
+						} else {
+							println!("Read access to {:?} not allowed", key);
+						}
 					}
 				},
 				QueryResult::GetRecord(Err(err)) => {
 					eprintln!("Failed to get record: {:?}", err);
+					self.users.lock().unwrap().remove(&id).unwrap();
 				},
 				_ => {
 					println!("\n{:?}\n", result);

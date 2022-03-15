@@ -1,4 +1,3 @@
-use std::fs;
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{
      Kademlia,
@@ -23,7 +22,7 @@ use std::collections::HashMap;
 mod entry;
 mod behaviour;
 
-use entry::Entry;
+use entry::{Entry, Children};
 use behaviour::MyBehaviour;
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
@@ -38,15 +37,13 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         let behaviour = MyBehaviour { 
 		kademlia, 
 		mdns, 
-		test: Arc::new(Mutex::new(HashMap::new()))
+		users: Arc::new(Mutex::new(HashMap::new()))
 	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-	let username = fs::read_to_string("user")?;
-
 	let mut swarm = create_swarm().await;
 
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
@@ -60,7 +57,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 				handle_input(
 					&mut swarm.behaviour_mut(),
 					line.expect("stdin closed"),
-					&username
 				);
 			},
 			event = swarm.select_next_some() => match event {
@@ -73,14 +69,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 }
 
-fn handle_input(behaviour: &mut MyBehaviour, line: String, username: &str) {
+fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 	let mut args = line.split(' '); 
 
 	let kad = &mut behaviour.kademlia;
 
 	match args.next() {
 		Some("GET") => {
-			let key = {
+			let hash = {
 				match args.next() {
 					Some(key) => Key::new(&key),
 					None => {
@@ -90,15 +86,33 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String, username: &str) {
 				}
 			};
 
+			let username = {
+				match args.next() {
+					Some(name) => name.to_string(),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};	
 
-			let query_id = kad.get_record(&key, Quorum::One);
-			behaviour.test.lock().unwrap().insert(query_id, String::from(username));
-
+			let query_id = kad.get_record(&hash, Quorum::One);
+			behaviour.users.lock().unwrap().insert(query_id, String::from(username));
 		},
 		Some("PUT") => {
-			let path = {
+			let name = {
 				match args.next() {
-					Some(key) => key.to_string(),
+					Some(name) => name.to_string(),
+					None => {
+						eprintln!("Expected key");
+						return;
+					}
+				}
+			};	
+
+			let username = {
+				match args.next() {
+					Some(name) => name.to_string(),
 					None => {
 						eprintln!("Expected key");
 						return;
@@ -119,10 +133,11 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String, username: &str) {
 			let read_users: Vec<String> = if public { Vec::new() } else { args.map(|s| s.to_string()).collect() };
 
 			let new_entry = Entry {
-				path,
+				name,
 				user: username.to_string(),
 				public,
-				read_users 
+				read_users,
+				children: Vec::<Children>::new()
 			};
 
 			let value = serde_json::to_vec(&new_entry).unwrap();
