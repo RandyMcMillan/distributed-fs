@@ -1,6 +1,5 @@
 use serde::{Serialize, Deserialize};
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Entry {
 	pub user: String,

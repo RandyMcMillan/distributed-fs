@@ -130,14 +130,35 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				}
 			};
 
-			let read_users: Vec<String> = if public { Vec::new() } else { args.map(|s| s.to_string()).collect() };
+			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
+			let mut curr_idx: u32 = 0;
+
+			println!("{:?}", rest);
+
+			let read_users_count: u32 = rest[curr_idx as usize].parse().unwrap();
+			let read_users = if public {
+				Vec::<String>::new()
+			} else {
+				rest[(curr_idx + 1) as usize..(curr_idx + read_users_count + 1) as usize].to_vec()
+			};
+			curr_idx += read_users_count + 1;
+
+			let children_count: u32 = rest[curr_idx as usize].parse().unwrap();
+			let children = rest[(curr_idx + 1) as usize..(curr_idx + children_count + 1) as usize].to_vec();
+			curr_idx += children_count + 1;
+			println!("{:?}", children);
+
 
 			let new_entry = Entry {
 				name,
 				user: username.to_string(),
 				public,
-				read_users,
-				children: Vec::<Children>::new()
+				read_users: read_users,
+				children: children.iter().map(|s| Children {
+					name: s.to_string(),
+					r#type: "file".to_string(),
+					entry: "".to_string()
+				}).collect()
 			};
 
 			let value = serde_json::to_vec(&new_entry).unwrap();
