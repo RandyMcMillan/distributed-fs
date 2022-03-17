@@ -18,6 +18,8 @@ use futures::{prelude::*};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use rand::{thread_rng, Rng, distributions::Alphanumeric};
+use sha2::{Sha256, Digest};
 
 mod entry;
 mod behaviour;
@@ -44,6 +46,13 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+	let rand_string: String = thread_rng()
+		.sample_iter(&Alphanumeric)
+		.take(30)
+		.map(char::from)
+		.collect();
+	println!("{}", rand_string);
+
 	let mut swarm = create_swarm().await;
 
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
@@ -131,26 +140,22 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 			};
 
 			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
-			let mut curr_idx: u32 = 0;
+			let mut curr_idx: usize = 0;
 
-			println!("{:?}", rest);
-
-			let read_users_count: u32 = rest[curr_idx as usize].parse().unwrap();
+			let read_users_count: usize = rest[curr_idx as usize].parse::<usize>().unwrap() + 1;
 			let read_users = if public {
 				Vec::<String>::new()
 			} else {
-				rest[(curr_idx + 1) as usize..(curr_idx + read_users_count + 1) as usize].to_vec()
+				rest[curr_idx + 1..curr_idx + read_users_count].to_vec()
 			};
-			curr_idx += read_users_count + 1;
+			curr_idx += read_users_count;
 
-			let children_count: u32 = rest[curr_idx as usize].parse().unwrap();
-			let children = rest[(curr_idx + 1) as usize..(curr_idx + children_count + 1) as usize].to_vec();
-			curr_idx += children_count + 1;
-			println!("{:?}", children);
-
+			let children_count: usize = rest[curr_idx as usize].parse::<usize>().unwrap() + 1;
+			let children = rest[curr_idx + 1..curr_idx + children_count].to_vec();
+			curr_idx += children_count;
 
 			let new_entry = Entry {
-				name,
+				name: name.clone(),
 				user: username.to_string(),
 				public,
 				read_users: read_users,
@@ -163,8 +168,12 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 
 			let value = serde_json::to_vec(&new_entry).unwrap();
 
+			let mut hasher = Sha256::new();
+			hasher.update(format!("{}{}", username, name));
+			let key: String = format!("{:X}", hasher.finalize());
+
 			let record = Record {
-				key: Key::new(&username),
+				key: Key::new(&key),
 				value,
 				publisher: None,
 				expires: None,
