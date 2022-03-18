@@ -18,13 +18,19 @@ use std::collections::HashMap;
 
 use crate::entry::Entry;
 
+#[derive(Debug)]
+pub struct Query {
+	pub username: String,
+	pub location: String
+}
+
 #[derive(NetworkBehaviour)]
 #[behaviour(event_process = true)]
 pub struct MyBehaviour {
 	pub kademlia: Kademlia<MemoryStore>,
 	pub mdns: Mdns,
 	#[behaviour(ignore)]
-	pub users: Arc<Mutex<HashMap<QueryId, String>>>
+	pub queries: Arc<Mutex<HashMap<QueryId, Query>>>
 }	
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
@@ -48,9 +54,11 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 						..
 					} in ok.records {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
-						let username = self.users.lock().unwrap().remove(&id).unwrap();
+						let query = self.queries.lock().unwrap().remove(&id).unwrap();
 
-						if entry.user == username || entry.public || entry.read_users.contains(&username)  {
+						println!("{:?}", query);
+
+						if entry.user == query.username || entry.public || entry.read_users.contains(&query.username)  {
 							println!("{:?}", entry);
 						} else {
 							println!("Read access to {:?} not allowed", key);
@@ -59,7 +67,7 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 				},
 				QueryResult::GetRecord(Err(err)) => {
 					eprintln!("Failed to get record: {:?}", err);
-					self.users.lock().unwrap().remove(&id).unwrap();
+					self.queries.lock().unwrap().remove(&id).unwrap();
 				},
 				_ => {
 					println!("\n{:?}\n", result);

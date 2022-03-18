@@ -25,7 +25,7 @@ mod entry;
 mod behaviour;
 
 use entry::{Entry, Children};
-use behaviour::MyBehaviour;
+use behaviour::{MyBehaviour, Query};
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -39,7 +39,7 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         let behaviour = MyBehaviour { 
 		kademlia, 
 		mdns, 
-		users: Arc::new(Mutex::new(HashMap::new()))
+		queries: Arc::new(Mutex::new(HashMap::new()))
 	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
@@ -85,15 +85,28 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 
 	match args.next() {
 		Some("GET") => {
-			let hash = {
+			let location = {
 				match args.next() {
-					Some(key) => Key::new(&key),
+					Some(key) => key.to_string(),
 					None => {
 						eprintln!("Expected key");
 						return;
 					}
 				}
 			};
+			let mut key = "".to_string();
+			let mut key_idx: usize = 0;
+
+			let parts: Vec<String> = location.split("/").map(|s| s.to_string()).collect();
+			for (idx, part) in parts.iter().rev().enumerate() {
+				if part.starts_with("e_") {
+					key = part.to_string();
+					key_idx = parts.len() - idx - 1;
+					
+					break
+				}
+			}
+
 
 			let username = {
 				match args.next() {
@@ -105,8 +118,14 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				}
 			};	
 
-			let query_id = kad.get_record(&hash, Quorum::One);
-			behaviour.users.lock().unwrap().insert(query_id, String::from(username));
+			let query_id = kad.get_record(&Key::new(&key), Quorum::One);
+			behaviour.queries.lock().unwrap().insert(
+				query_id, 
+				Query { 
+					username: String::from(username),
+					location: parts[key_idx..].join("/")
+				}
+			);
 		},
 		Some("PUT") => {
 			let name = {
@@ -170,7 +189,7 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 
 			let mut hasher = Sha256::new();
 			hasher.update(format!("{}{}", username, name));
-			let key: String = format!("{:X}", hasher.finalize());
+			let key: String = format!("e_{:X}", hasher.finalize());
 
 			let record = Record {
 				key: Key::new(&key),
