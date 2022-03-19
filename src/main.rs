@@ -89,36 +89,32 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				match args.next() {
 					Some(key) => key.to_string(),
 					None => {
-						eprintln!("Expected key");
+						eprintln!("Expected location");
 						return;
 					}
 				}
 			};
-			let mut key = "".to_string();
-			let mut key_idx: usize = 0;
 
+			let mut key_idx: usize = 0;
 			let parts: Vec<String> = location.split("/").map(|s| s.to_string()).collect();
 			for (idx, part) in parts.iter().rev().enumerate() {
 				if part.starts_with("e_") {
-					key = part.to_string();
 					key_idx = parts.len() - idx - 1;
-					
 					break
 				}
 			}
-
 
 			let username = {
 				match args.next() {
 					Some(name) => name.to_string(),
 					None => {
-						eprintln!("Expected key");
+						eprintln!("Expected username");
 						return;
 					}
 				}
 			};	
 
-			let query_id = kad.get_record(&Key::new(&key), Quorum::One);
+			let query_id = kad.get_record(&Key::new(&parts[key_idx].to_string()), Quorum::One);
 			behaviour.queries.lock().unwrap().insert(
 				query_id, 
 				Query { 
@@ -132,7 +128,7 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				match args.next() {
 					Some(name) => name.to_string(),
 					None => {
-						eprintln!("Expected key");
+						eprintln!("Expected name");
 						return;
 					}
 				}
@@ -142,7 +138,7 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				match args.next() {
 					Some(name) => name.to_string(),
 					None => {
-						eprintln!("Expected key");
+						eprintln!("Expected username");
 						return;
 					}
 				}
@@ -152,33 +148,35 @@ fn handle_input(behaviour: &mut MyBehaviour, line: String) {
 				match args.next() {
 					Some(value) => value == "true",
 					None => {
-						eprintln!("Expected value");
+						eprintln!("Expected true or false");
 						return;
 					}
 				}
 			};
 
 			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
-			let mut curr_idx: usize = 0;
+			let mut _curr_idx: usize = 0;
 
-			let read_users_count: usize = rest[curr_idx as usize].parse::<usize>().unwrap() + 1;
+			let read_users_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
 			let read_users = if public {
 				Vec::<String>::new()
 			} else {
-				rest[curr_idx + 1..curr_idx + read_users_count].to_vec()
+				rest[_curr_idx + 1.._curr_idx + read_users_count].to_vec()
 			};
-			curr_idx += read_users_count;
+			_curr_idx += read_users_count;
 
-			let children_count: usize = rest[curr_idx as usize].parse::<usize>().unwrap() + 1;
-			let children = rest[curr_idx + 1..curr_idx + children_count].to_vec();
-			curr_idx += children_count;
+			let children_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
+			let children = rest[_curr_idx + 1.._curr_idx + children_count].to_vec();
+			_curr_idx += children_count;
 
 			let new_entry = Entry {
 				name: name.clone(),
 				user: username.to_string(),
 				public,
 				read_users: read_users,
-				children: children.iter().map(|s| Children {
+				children: children.iter().filter(|s| {
+					!s.contains("/")
+				}).map(|s| Children {
 					name: s.to_string(),
 					r#type: "file".to_string(),
 					entry: "".to_string()

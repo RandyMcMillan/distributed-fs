@@ -53,21 +53,25 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 						record: Record { key, value, .. },
 						..
 					} in ok.records {
-						let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
 						let query = self.queries.lock().unwrap().remove(&id).unwrap();
+						let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
 
-						println!("{:?}", query);
+						let parts: Vec<String> = query.location.split("/").map(|s| s.to_string()).collect();
 
-						if entry.user == query.username || entry.public || entry.read_users.contains(&query.username)  {
-							println!("{:?}", entry);
+						if parts.len() == 1 {
+							if entry.user == query.username || entry.public || entry.read_users.contains(&query.username)  {
+								println!("{:?}", entry);
+							} else {
+								println!("Read access to {:?} not allowed", key);
+							}
 						} else {
-							println!("Read access to {:?} not allowed", key);
+							let path = parts[1..].join("/");
 						}
 					}
 				},
 				QueryResult::GetRecord(Err(err)) => {
-					eprintln!("Failed to get record: {:?}", err);
 					self.queries.lock().unwrap().remove(&id).unwrap();
+					eprintln!("Failed to get record: {:?}", err);
 				},
 				_ => {
 					println!("\n{:?}\n", result);
