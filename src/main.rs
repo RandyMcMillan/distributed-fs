@@ -18,8 +18,12 @@ use futures::{prelude::*};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use rand::{thread_rng, Rng, distributions::Alphanumeric};
+use serde::{Serialize, Deserialize};
+
+// use rand::{thread_rng, Rng, distributions::Alphanumeric};
 use sha2::{Sha256, Digest};
+
+use warp::{http, Filter};
 
 mod entry;
 mod behaviour;
@@ -44,14 +48,28 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
+async fn put_record_fn(item: Entry) -> Result<impl warp::Reply, warp::Rejection> {
+	println!("{:?}", item);
+        Ok(warp::reply::with_status(
+            "created",
+            http::StatusCode::CREATED,
+        ))
+}
+
+fn json_body() -> impl Filter<Extract = (Entry,), Error = warp::Rejection> + Clone {
+    // When accepting a body, we want a JSON body
+    // (and to reject huge payloads)...
+    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-	let rand_string: String = thread_rng()
-		.sample_iter(&Alphanumeric)
-		.take(30)
-		.map(char::from)
-		.collect();
-	println!("{}", rand_string);
+	// let rand_string: String = thread_rng()
+	// 	.sample_iter(&Alphanumeric)
+	// 	.take(30)
+	// 	.map(char::from)
+	// 	.collect();
+	// println!("{}", rand_string);
 
 	let mut swarm = create_swarm().await;
 
@@ -60,8 +78,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	// Listen on all interfaces and whatever port the OS assigns.
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
 
+	let put_record = warp::post()
+		.and(warp::path("put"))
+		.and(warp::path::end())
+		.and(json_body())
+		.and_then(put_record_fn);
+
+	let routes = warp::post().and(
+			put_record
+	);
+
 	loop {
 		tokio::select! {
+			_server = warp::serve(routes.clone()).run(([192, 168, 0, 164], 8000)) => {
+				println!("test");
+			},
 			line = stdin.select_next_some() => {
 				handle_input(
 					&mut swarm.behaviour_mut(),

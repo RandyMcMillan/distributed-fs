@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Entry {
 	pub user: String,
 	pub name: String,
@@ -9,7 +9,7 @@ pub struct Entry {
 	pub children: Vec<Children>
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Children {
 	pub name: String,
 	pub r#type: String,
