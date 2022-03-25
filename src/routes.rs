@@ -5,7 +5,6 @@ pub fn create_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::
 	get_record().or(put_record())
 }
 
-
 fn get_record() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
 	warp::path("get")
 		.and(warp::path::end())
