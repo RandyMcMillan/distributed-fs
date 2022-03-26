@@ -4,8 +4,11 @@ use libp2p::kad::{
      record::Key,
      Quorum,
      Record,
-     KademliaEvent
+     KademliaEvent,
+     QueryResult,
+     PeerRecord
 };
+use std::str;
 use libp2p::{
     development_transport, 
     identity,
@@ -22,7 +25,7 @@ use std::collections::HashMap;
 // use rand::{thread_rng, Rng, distributions::Alphanumeric};
 use sha2::{Sha256, Digest};
 use tokio::net::TcpListener; 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde::Deserialize;
 
 mod entry;
@@ -134,6 +137,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					};
 					println!("{:?}", entry);
 
+					socket.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await?;
 
 					behaviour.kademlia
 						.put_record(record, Quorum::One)
@@ -151,7 +155,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 						}
 					};
 
-					println!("Query response: \n{:?}", res);
+					match res {
+						QueryResult::GetRecord(Ok(ok)) => {
+							for PeerRecord {
+								record: Record { key, value, .. },
+								..
+							} in ok.records {
+								let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
+
+								socket.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&entry).unwrap()).as_bytes()).await?;
+							}
+						},
+						_ => {}
+					};
 				}
 			}
 			line = stdin.select_next_some() => {
