@@ -15,3 +15,9 @@ pub struct Children {
 	pub r#type: String,
 	pub entry: String  
 }
+
+impl Entry {
+	pub fn has_access(&self, username: String) -> bool {
+		self.user == username || self.public || self.read_users.contains(&username) 
+	}
+}

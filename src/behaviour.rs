@@ -3,8 +3,6 @@ use libp2p::kad::{
      Kademlia,
      KademliaEvent,
      QueryResult,
-     PeerRecord, 
-     Record,
      QueryId
 };
 use libp2p::{
@@ -12,11 +10,8 @@ use libp2p::{
     NetworkBehaviour, 
     swarm::{NetworkBehaviourEventProcess}
 };
-use std::str;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-
-use crate::entry::Entry;
 
 #[derive(Debug)]
 pub struct Query {
@@ -66,7 +61,7 @@ impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 	fn inject_event(&mut self, msg: KademliaEvent) {
 		match msg {
-			KademliaEvent::OutboundQueryCompleted { result, id, .. } => match result {
+			KademliaEvent::OutboundQueryCompleted { result, .. } => match result {
 				QueryResult::GetRecord(Ok(_ok)) => {
 					// for PeerRecord {
 					// 	record: Record { key, value, .. },
