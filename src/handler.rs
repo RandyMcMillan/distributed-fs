@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::entry::Entry;
 use crate::behaviour::{MyBehaviour, OutEvent};
+use crate::Dht;
 
 #[derive(Debug, Deserialize)]
 struct GetRecordQuery {
@@ -33,18 +34,18 @@ struct GetRecordResponse {
 	data: Option<Entry>
 }
 
-pub async fn handle_stream(mut stream: TcpStream, mut swarm: Swarm<MyBehaviour>) -> (Result<(), String>, Swarm<MyBehaviour>) {
+pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(), String> {
 	let mut buffer = [0; 1024];
 	let bytes_read = match stream.read(&mut buffer).await {
 		Ok(b) => b,
-		Err(_error) => return (Err("Could not read bytes".to_string()), swarm)
+		Err(_error) => return Err("Could not read bytes".to_string())
 	};
 
 	let mut headers = [httparse::EMPTY_HEADER; 64];
 	let mut req = httparse::Request::new(&mut headers);
 	match req.parse(&buffer) {
 		Ok(..) => {},
-		Err(_error) => return (Err("Failed to parse headers".to_string()), swarm)
+		Err(_error) => return Err("Failed to parse headers".to_string())
 
 	};
 
@@ -52,7 +53,7 @@ pub async fn handle_stream(mut stream: TcpStream, mut swarm: Swarm<MyBehaviour>)
 	let mut parts = request.split("\r\n\r\n");
 	match parts.next() {
 		Some(_val) => {},
-		None => return (Err("Expected body".to_string()), swarm)
+		None => return Err("Expected body".to_string())
 	};
 
 	let body = match parts.next() {
@@ -61,12 +62,12 @@ pub async fn handle_stream(mut stream: TcpStream, mut swarm: Swarm<MyBehaviour>)
 	};
 
 	if body.len() == 0 {
-		return (Err("Got body of length 0".to_string()), swarm)
+		return Err("Got body of length 0".to_string())
 	}
 
 	println!("{}, {}", req.method.unwrap(), req.path.unwrap());
 
-	let behaviour = swarm.behaviour_mut();
+	let behaviour = swarm.0.behaviour_mut();
 
 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
 		let entry: Entry = serde_json::from_str(&body).unwrap();
@@ -94,10 +95,11 @@ pub async fn handle_stream(mut stream: TcpStream, mut swarm: Swarm<MyBehaviour>)
 		let query: GetRecordQuery = serde_json::from_str(&body).unwrap();
 		let key = get_location_key(query.location.clone());
 
-		behaviour.kademlia.get_record(&key, Quorum::One);
+		swarm.get(&key).await.unwrap();
+		// behaviour.kademlia.get_record(&key, Quorum::One);
 
 		let res = loop {
-			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = swarm.select_next_some().await {
+			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = swarm.0.select_next_some().await {
 				break result;
 			}
 		};
@@ -136,7 +138,7 @@ pub async fn handle_stream(mut stream: TcpStream, mut swarm: Swarm<MyBehaviour>)
 		};
 	}
 
-	(Ok(()), swarm)
+	Ok(())
 }
 
 fn get_location_key(input_location: String) -> Key {

@@ -18,7 +18,6 @@ use futures::{prelude::*};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-// use rand::{thread_rng, Rng, distributions::Alphanumeric};
 use sha2::{Sha256, Digest};
 use tokio::net::TcpListener; 
 
@@ -46,20 +45,30 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
+pub struct Dht (Swarm<MyBehaviour>);
+
+impl Dht {
+	pub fn new(swarm: Swarm<MyBehaviour>) -> Self {
+		Self(swarm)
+	}
+ 
+	pub async fn get(&mut self, key: &Key) -> Result<(), &str> {
+		let behaviour = self.0.behaviour_mut();
+		behaviour.kademlia.get_record(&key, Quorum::One);
+
+		Ok(())
+	}
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-	// let rand_string: String = thread_rng()
-	// 	.sample_iter(&Alphanumeric)
-	// 	.take(30)
-	// 	.map(char::from)
-	// 	.collect();
-	// println!("{}", rand_string);
-
 	let mut swarm = create_swarm().await;
 
 	// Listen on all interfaces and whatever port the OS assigns.
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
+
+	let mut dht_swarm = Dht::new(swarm);
+
 
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 	let listener = TcpListener::bind("192.168.0.164:8000").await?;
@@ -68,16 +77,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		tokio::select! {
 			s = listener.accept() => {
 				let (socket, _) = s.unwrap();
-				swarm = match handler::handle_stream(socket, swarm).await {
-					(Ok(()), s) => s,
-					(Err(err), s) => {
+				match handler::handle_stream(socket, &mut dht_swarm).await {
+					Err(err)=> {
 						eprintln!("{}", err);
-						s
 					}
+					_ => {}
 				};
 			}
-			line = stdin.select_next_some() => handle_input(&mut swarm.behaviour_mut(), line.expect("stdin closed")),
-			event = swarm.select_next_some() => match event {
+			line = stdin.select_next_some() => 
+				handle_input(&mut dht_swarm.0.behaviour_mut(), line.expect("stdin closed")),
+			event = dht_swarm.0.select_next_some() => match event {
 				SwarmEvent::NewListenAddr { address, .. } => {
 					println!("Listening in {:?}", address);
 				},
