@@ -1,24 +1,11 @@
-use libp2p::kad::{
-     record::Key,
-     Quorum,
-     Record,
-     KademliaEvent,
-     QueryResult,
-     PeerRecord
-};
+use libp2p::kad::record::Key;
 use std::str;
-use libp2p::{
-    Swarm,
-    swarm::SwarmEvent
-};
-use futures::{prelude::*};
 use sha2::{Sha256, Digest};
 use tokio::net::TcpStream; 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
 
 use crate::entry::Entry;
-use crate::behaviour::{MyBehaviour, OutEvent};
 use crate::Dht;
 
 #[derive(Debug, Deserialize)]
@@ -65,10 +52,6 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 		return Err("Got body of length 0".to_string())
 	}
 
-	println!("{}, {}", req.method.unwrap(), req.path.unwrap());
-
-	let behaviour = swarm.0.behaviour_mut();
-
 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
 		let entry: Entry = serde_json::from_str(&body).unwrap();
 
@@ -78,54 +61,36 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 		hasher.update(format!("{}{}", entry.user, entry.name));
 		let key: String = format!("e_{:X}", hasher.finalize());
 
-		let record = Record {
-			key: Key::new(&key),
-			value,
-			publisher: None,
-			expires: None,
-		};
-		println!("{:?}", entry);
-
-		stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await.unwrap();
-
-		behaviour.kademlia
-			.put_record(record, Quorum::One)
-			.expect("Failed to store record locally.");
+		match swarm.put(Key::new(&key), value).await {
+			Ok(_) => {
+				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await.unwrap();
+			},
+			Err(err) => {
+				eprintln!("{}", err);
+				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await.unwrap();
+			}
+		}
 	} else if req.method.unwrap() == "GET" && req.path.unwrap() == "/get" {
 		let query: GetRecordQuery = serde_json::from_str(&body).unwrap();
 		let key = get_location_key(query.location.clone());
 
-		swarm.get(&key).await.unwrap();
-		// behaviour.kademlia.get_record(&key, Quorum::One);
+		match swarm.get(&key).await {
+			Ok(record) => {
+				let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-		let res = loop {
-			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = swarm.0.select_next_some().await {
-				break result;
-			}
-		};
+				if entry.has_access(query.username.clone()) {
+					let res = GetRecordResponse {
+						key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
+						found: true,
+						data: Some(entry)
+					};
 
-		match res {
-			QueryResult::GetRecord(Ok(ok)) => {
-				for PeerRecord {
-					record: Record { key, value, .. },
-					..
-				} in ok.records {
-					let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
-
-					if entry.has_access(query.username.clone()) {
-						let res = GetRecordResponse {
-							key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
-							found: true,
-							data: Some(entry)
-						};
-
-						stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
-					} else {
-						println!("Access to {:?} not allowed", key);
-					}
+					stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
+				} else {
+					println!("Access to {:?} not allowed", key);
 				}
 			},
-			QueryResult::GetRecord(Err(_err)) => {
+			Err(_) => {
 				let res = GetRecordResponse {
 					key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
 					found: false,
@@ -133,8 +98,7 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 				};
 
 				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
-			},
-			_ => {}
+			}
 		};
 	}
 

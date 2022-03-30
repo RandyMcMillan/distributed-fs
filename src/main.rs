@@ -4,6 +4,8 @@ use libp2p::kad::{
      record::Key,
      Quorum,
      Record,
+     KademliaEvent,
+     QueryResult
 };
 use libp2p::{
     development_transport, 
@@ -26,7 +28,7 @@ mod behaviour;
 mod handler;
 
 use entry::{Entry, Children};
-use behaviour::{MyBehaviour, Query};
+use behaviour::{MyBehaviour, Query, OutEvent};
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -52,11 +54,50 @@ impl Dht {
 		Self(swarm)
 	}
  
-	pub async fn get(&mut self, key: &Key) -> Result<(), &str> {
+	pub async fn get(&mut self, key: &Key) -> Result<Record, &str> {
 		let behaviour = self.0.behaviour_mut();
+
 		behaviour.kademlia.get_record(&key, Quorum::One);
 
-		Ok(())
+		let res = loop {
+			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted { result, .. })) = self.0.select_next_some().await {
+				break result;
+			}
+		};
+
+		match res {
+			QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
+			_ => Err("Record not found")
+		}
+	}
+
+	pub async fn put(&mut self, key: Key, value: Vec<u8>) -> Result<Key, String> {
+		let record = Record {
+			key,
+			value,
+			publisher: None,
+			expires: None,
+		};
+
+		let behaviour = self.0.behaviour_mut();
+
+		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");
+
+		let res = loop {
+			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
+				break result;
+			}
+		};
+
+		match res {
+			QueryResult::PutRecord(d) => {
+				match d {
+					Ok(dd) => Ok(dd.key),
+					Err(e) => Err(format!("{:?}", e))
+				}
+			}
+			_ => Err("Something went wrong".to_string())
+		}
 	}
 }
 
@@ -68,7 +109,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
 
 	let mut dht_swarm = Dht::new(swarm);
-
 
 	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
 	let listener = TcpListener::bind("192.168.0.164:8000").await?;
