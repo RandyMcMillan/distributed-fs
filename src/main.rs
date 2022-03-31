@@ -22,6 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use tokio::net::TcpListener; 
+use openssl::rsa::Rsa;
+use openssl::symm::Cipher;
+use std::env;
 
 mod entry;
 mod behaviour;
@@ -103,6 +106,24 @@ impl Dht {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+	let args: Vec<String> = env::args().collect();
+
+	if args.len() > 1 && &args[1] == "gen-keypair" {
+		let passphrase = "passphrase";
+
+		let rsa = Rsa::generate(512).unwrap();
+		let private_key: Vec<u8> = rsa.private_key_to_pem_passphrase(
+			Cipher::aes_128_cbc(), 
+			passphrase.as_bytes()
+		).unwrap();
+		let public_key: Vec<u8> = rsa.public_key_to_pem().unwrap();
+
+		println!("Private key: {}", String::from_utf8(private_key).unwrap());
+		println!("Public key: {}", String::from_utf8(public_key).unwrap());
+
+		return Ok(());
+	}
+
 	let mut swarm = create_swarm().await;
 
 	// Listen on all interfaces and whatever port the OS assigns.
