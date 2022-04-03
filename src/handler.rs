@@ -4,14 +4,26 @@ use sha2::{Sha256, Digest};
 use tokio::net::TcpStream; 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
+use openssl::rsa::Rsa;
+use openssl::pkey::Private;
 
 use crate::entry::Entry;
 use crate::Dht;
 
 #[derive(Debug, Deserialize)]
+struct PutRecordRequest {
+	entry: Entry,
+	public_key: String,
+	private_key: String,
+	passphrase: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct GetRecordQuery {
 	location: String,
-	username: String
+	private_key: String,
+	username: String,
+	passphrase: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -22,7 +34,7 @@ struct GetRecordResponse {
 }
 
 pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(), String> {
-	let mut buffer = [0; 1024];
+	let mut buffer = [0; 1024 * 8];
 	let bytes_read = match stream.read(&mut buffer).await {
 		Ok(b) => b,
 		Err(_error) => return Err("Could not read bytes".to_string())
@@ -53,7 +65,21 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 	}
 
 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
-		let entry: Entry = serde_json::from_str(&body).unwrap();
+		let put_request: PutRecordRequest = serde_json::from_str(&body).unwrap();
+		let entry: Entry = put_request.entry;
+
+		let private_key = match Rsa::<Private>::private_key_from_pem_passphrase(
+			put_request.private_key.as_bytes(), 
+			put_request.passphrase.as_bytes()
+		) {
+			Ok(rsa) => rsa,
+			Err(error) => {
+				return Err(error.to_string())
+			}
+		};
+
+		let public_key: Vec<u8> = private_key.public_key_to_pem_pkcs1().unwrap();
+		assert_eq!(String::from_utf8(public_key).unwrap(), put_request.public_key);
 
 		let value = serde_json::to_vec(&entry).unwrap();
 
@@ -118,3 +144,5 @@ fn get_location_key(input_location: String) -> Key {
 
 	Key::new(&parts[key_idx])
 }
+
+// fn check_user(private_key: &[u8], passphrase: &[u8]) {}
