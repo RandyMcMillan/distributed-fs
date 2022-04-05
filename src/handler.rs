@@ -13,7 +13,6 @@ use crate::Dht;
 #[derive(Debug, Deserialize)]
 struct PutRecordRequest {
 	entry: Entry,
-	public_key: String,
 	private_key: String,
 	passphrase: String,
 }
@@ -22,7 +21,6 @@ struct PutRecordRequest {
 struct GetRecordQuery {
 	location: String,
 	private_key: String,
-	username: String,
 	passphrase: String,
 }
 
@@ -66,7 +64,8 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 
 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
 		let put_request: PutRecordRequest = serde_json::from_str(&body).unwrap();
-		let entry: Entry = put_request.entry;
+		let mut entry: Entry = put_request.entry;
+		let value = serde_json::to_vec(&entry).unwrap();
 
 		let private_key = match Rsa::<Private>::private_key_from_pem_passphrase(
 			put_request.private_key.as_bytes(), 
@@ -79,9 +78,7 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 		};
 
 		let public_key: Vec<u8> = private_key.public_key_to_pem_pkcs1().unwrap();
-		assert_eq!(String::from_utf8(public_key).unwrap(), put_request.public_key);
-
-		let value = serde_json::to_vec(&entry).unwrap();
+		entry.user = String::from_utf8(public_key).unwrap();
 
 		let mut hasher = Sha256::new();
 		hasher.update(format!("{}{}", entry.user, entry.name));
@@ -97,14 +94,25 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 			}
 		}
 	} else if req.method.unwrap() == "GET" && req.path.unwrap() == "/get" {
-		let query: GetRecordQuery = serde_json::from_str(&body).unwrap();
-		let key = get_location_key(query.location.clone());
+		let get_request: GetRecordQuery = serde_json::from_str(&body).unwrap();
+		let key = get_location_key(get_request.location.clone());
+
+		let private_key = match Rsa::<Private>::private_key_from_pem_passphrase(
+			get_request.private_key.as_bytes(), 
+			get_request.passphrase.as_bytes()
+		) {
+			Ok(rsa) => rsa,
+			Err(error) => {
+				return Err(error.to_string())
+			}
+		};
+		let public_key: Vec<u8> = private_key.public_key_to_pem_pkcs1().unwrap();
 
 		match swarm.get(&key).await {
 			Ok(record) => {
 				let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-				if entry.has_access(query.username.clone()) {
+				if entry.has_access(String::from_utf8(public_key).unwrap()) {
 					let res = GetRecordResponse {
 						key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
 						found: true,

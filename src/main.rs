@@ -4,8 +4,6 @@ use libp2p::kad::{
      record::Key,
      Quorum,
      Record,
-     KademliaEvent,
-     QueryResult
 };
 use libp2p::{
     development_transport, 
@@ -22,16 +20,22 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use tokio::net::TcpListener; 
-use openssl::rsa::Rsa;
-use openssl::symm::Cipher;
+// use openssl::rsa::Rsa;
+// use openssl::symm::Cipher;
 use std::env;
+
+
+use secp256k1::rand::rngs::OsRng;
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 mod entry;
 mod behaviour;
 mod handler;
+mod dht;
 
 use entry::{Entry, Children};
 use behaviour::{MyBehaviour, Query, OutEvent};
+use dht::Dht;
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -50,76 +54,30 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
-pub struct Dht (Swarm<MyBehaviour>);
-
-impl Dht {
-	pub fn new(swarm: Swarm<MyBehaviour>) -> Self {
-		Self(swarm)
-	}
- 
-	pub async fn get(&mut self, key: &Key) -> Result<Record, &str> {
-		let behaviour = self.0.behaviour_mut();
-
-		behaviour.kademlia.get_record(&key, Quorum::One);
-
-		let res = loop {
-			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted { result, .. })) = self.0.select_next_some().await {
-				break result;
-			}
-		};
-
-		match res {
-			QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
-			_ => Err("Record not found")
-		}
-	}
-
-	pub async fn put(&mut self, key: Key, value: Vec<u8>) -> Result<Key, String> {
-		let record = Record {
-			key,
-			value,
-			publisher: None,
-			expires: None,
-		};
-
-		let behaviour = self.0.behaviour_mut();
-
-		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");
-
-		let res = loop {
-			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
-				break result;
-			}
-		};
-
-		match res {
-			QueryResult::PutRecord(d) => {
-				match d {
-					Ok(dd) => Ok(dd.key),
-					Err(e) => Err(format!("{:?}", e))
-				}
-			}
-			_ => Err("Something went wrong".to_string())
-		}
-	}
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<String> = env::args().collect();
 
 	if args.len() > 1 && &args[1] == "gen-keypair" {
-		let passphrase = "passphrase";
+		// let passphrase = "passphrase";
 
-		let rsa = Rsa::generate(512).unwrap();
-		let private_key: Vec<u8> = rsa.private_key_to_pem_passphrase(
-			Cipher::aes_128_cbc(), 
-			passphrase.as_bytes()
-		).unwrap();
-		let public_key: Vec<u8> = rsa.public_key_to_pem_pkcs1().unwrap();
+		// let rsa = Rsa::generate(512).unwrap();
+		// let private_key: Vec<u8> = rsa.private_key_to_pem_passphrase(
+		// 	Cipher::aes_128_cbc(), 
+		// 	passphrase.as_bytes()
+		// ).unwrap();
+		// let public_key: Vec<u8> = rsa.public_key_to_pem_pkcs1().unwrap();
 
-		println!("Private key: {}", String::from_utf8(private_key).unwrap());
-		println!("Public key: {}", String::from_utf8(public_key).unwrap());
+		// println!("Private key: {}", String::from_utf8(private_key).unwrap());
+		// println!("Public key: {}", String::from_utf8(public_key).unwrap());
+
+
+		let secp = Secp256k1::new();
+		let mut rng = OsRng::new().unwrap();
+		let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+
+		assert_eq!(public_key.to_string(), PublicKey::from_secret_key(&secp, &secret_key).to_string());
+		println!("{}\n{}", public_key.to_string(), secret_key.display_secret());
 
 		return Ok(());
 	}
