@@ -23,8 +23,6 @@ use tokio::net::TcpListener;
 // use openssl::rsa::Rsa;
 // use openssl::symm::Cipher;
 use std::env;
-
-
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 

@@ -6,6 +6,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
 use openssl::rsa::Rsa;
 use openssl::pkey::Private;
+use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
+use secp256k1::hashes::sha256;
+use std::str::FromStr;
 
 use crate::entry::Entry;
 use crate::Dht;
@@ -13,15 +16,15 @@ use crate::Dht;
 #[derive(Debug, Deserialize)]
 struct PutRecordRequest {
 	entry: Entry,
-	private_key: String,
-	passphrase: String,
+	secret_key: String,
+	public_key: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct GetRecordQuery {
 	location: String,
-	private_key: String,
-	passphrase: String,
+	secret_key: String,
+	public_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -65,24 +68,20 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
 		let put_request: PutRecordRequest = serde_json::from_str(&body).unwrap();
 		let mut entry: Entry = put_request.entry;
-		let value = serde_json::to_vec(&entry).unwrap();
 
-		let private_key = match Rsa::<Private>::private_key_from_pem_passphrase(
-			put_request.private_key.as_bytes(), 
-			put_request.passphrase.as_bytes()
-		) {
-			Ok(rsa) => rsa,
-			Err(error) => {
-				return Err(error.to_string())
-			}
+		let (public_key, secret_key) = match check_user(put_request.secret_key, put_request.public_key) {
+			Ok(pkey) => pkey,
+			Err(error) => return Err(error)
 		};
 
-		let public_key: Vec<u8> = private_key.public_key_to_pem_pkcs1().unwrap();
-		entry.user = String::from_utf8(public_key).unwrap();
+		entry.user = public_key;
+		let value = serde_json::to_vec(&entry).unwrap();
 
-		let mut hasher = Sha256::new();
-		hasher.update(format!("{}{}", entry.user, entry.name));
-		let key: String = format!("e_{:X}", hasher.finalize());
+		let secp = Secp256k1::new();
+		let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", entry.user, entry.name).as_bytes());
+		let sig = secp.sign_ecdsa(&message, &secret_key);
+
+		let key: String = format!("e_{}", sig.to_string());
 
 		match swarm.put(Key::new(&key), value).await {
 			Ok(_) => {
@@ -97,22 +96,16 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 		let get_request: GetRecordQuery = serde_json::from_str(&body).unwrap();
 		let key = get_location_key(get_request.location.clone());
 
-		let private_key = match Rsa::<Private>::private_key_from_pem_passphrase(
-			get_request.private_key.as_bytes(), 
-			get_request.passphrase.as_bytes()
-		) {
-			Ok(rsa) => rsa,
-			Err(error) => {
-				return Err(error.to_string())
-			}
+		let (public_key, _) = match check_user(get_request.secret_key, get_request.public_key) {
+			Ok(pkey) => pkey,
+			Err(error) => return Err(error)
 		};
-		let public_key: Vec<u8> = private_key.public_key_to_pem_pkcs1().unwrap();
 
 		match swarm.get(&key).await {
 			Ok(record) => {
 				let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-				if entry.has_access(String::from_utf8(public_key).unwrap()) {
+				if entry.has_access(public_key) {
 					let res = GetRecordResponse {
 						key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
 						found: true,
@@ -154,3 +147,18 @@ fn get_location_key(input_location: String) -> Key {
 }
 
 // fn check_user(private_key: &[u8], passphrase: &[u8]) {}
+fn check_user(secret_key: String, public_key: String) -> Result<(String, SecretKey), String> {
+	let secp = Secp256k1::new();
+	let secret_key_parsed = match SecretKey::from_str(&secret_key) {
+		Ok(skey) => skey,
+		Err(error) => return Err(error.to_string())
+	};
+	let public_key_from_secret = PublicKey::from_secret_key(&secp, &secret_key_parsed);
+
+	if public_key_from_secret.to_string() != public_key {
+		return Err("Invalid keys".to_string())
+	}
+
+	
+	Ok((public_key_from_secret.to_string(), secret_key_parsed))
+}
