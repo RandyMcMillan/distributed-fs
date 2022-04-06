@@ -13,19 +13,11 @@ use libp2p::{
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
-#[derive(Debug)]
-pub struct Query {
-	pub username: String,
-	pub location: String
-}
-
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]
 pub struct MyBehaviour {
 	pub kademlia: Kademlia<MemoryStore>,
 	pub mdns: Mdns,
-	#[behaviour(ignore)]
-	pub queries: Arc<Mutex<HashMap<QueryId, Query>>>
 }	
 
 #[derive(Debug)]

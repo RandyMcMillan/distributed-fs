@@ -1,11 +1,8 @@
 use libp2p::kad::record::Key;
 use std::str;
-use sha2::{Sha256, Digest};
 use tokio::net::TcpStream; 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
-use openssl::rsa::Rsa;
-use openssl::pkey::Private;
 use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
 use secp256k1::hashes::sha256;
 use std::str::FromStr;
@@ -31,7 +28,8 @@ struct GetRecordQuery {
 struct GetRecordResponse {
 	found: bool,
 	key: String,
-	data: Option<Entry>
+	data: Option<Entry>,
+	error: Option<String>
 }
 
 pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(), String> {
@@ -98,7 +96,7 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 
 		let (public_key, _) = match check_user(get_request.secret_key, get_request.public_key) {
 			Ok(pkey) => pkey,
-			Err(error) => return Err(error)
+			Err(error) => return handle_get_error(stream, key, error).await 
 		};
 
 		match swarm.get(&key).await {
@@ -109,27 +107,35 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 					let res = GetRecordResponse {
 						key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
 						found: true,
-						data: Some(entry)
+						data: Some(entry),
+						error: None
 					};
 
 					stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
 				} else {
-					println!("Access to {:?} not allowed", key);
+					handle_get_error(stream, key.clone(), format!("Access to {:?} not allowed", key)).await;
 				}
 			},
 			Err(_) => {
-				let res = GetRecordResponse {
-					key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
-					found: false,
-					data: None
-				};
-
-				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
-			}
+				handle_get_error(stream, key, "failed to get entry".to_string()).await;
+			},
 		};
 	}
 
 	Ok(())
+}
+
+async fn handle_get_error(mut stream: TcpStream, key: Key, error_message: String ) -> Result<(), String> {
+	let res = GetRecordResponse {
+		key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
+		found: false,
+		data: None,
+		error: Some(error_message.clone())
+	};
+
+	stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
+
+	Err(error_message)
 }
 
 fn get_location_key(input_location: String) -> Key {
@@ -146,7 +152,6 @@ fn get_location_key(input_location: String) -> Key {
 	Key::new(&parts[key_idx])
 }
 
-// fn check_user(private_key: &[u8], passphrase: &[u8]) {}
 fn check_user(secret_key: String, public_key: String) -> Result<(String, SecretKey), String> {
 	let secp = Secp256k1::new();
 	let secret_key_parsed = match SecretKey::from_str(&secret_key) {
@@ -158,7 +163,6 @@ fn check_user(secret_key: String, public_key: String) -> Result<(String, SecretK
 	if public_key_from_secret.to_string() != public_key {
 		return Err("Invalid keys".to_string())
 	}
-
 	
 	Ok((public_key_from_secret.to_string(), secret_key_parsed))
 }

@@ -13,18 +13,13 @@ use libp2p::{
     Swarm,
     swarm::SwarmEvent
 };
-use async_std::{task, io};
+use async_std::task;
 use futures::{prelude::*};
 use std::error::Error;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use sha2::{Sha256, Digest};
 use tokio::net::TcpListener; 
-// use openssl::rsa::Rsa;
-// use openssl::symm::Cipher;
 use std::env;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, Secp256k1};
 
 mod entry;
 mod behaviour;
@@ -32,7 +27,7 @@ mod handler;
 mod dht;
 
 use entry::{Entry, Children};
-use behaviour::{MyBehaviour, Query, OutEvent};
+use behaviour::MyBehaviour;
 use dht::Dht;
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
@@ -47,7 +42,6 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         let behaviour = MyBehaviour { 
 		kademlia, 
 		mdns, 
-		queries: Arc::new(Mutex::new(HashMap::new()))
 	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
@@ -57,25 +51,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<String> = env::args().collect();
 
 	if args.len() > 1 && &args[1] == "gen-keypair" {
-		// let passphrase = "passphrase";
-
-		// let rsa = Rsa::generate(512).unwrap();
-		// let private_key: Vec<u8> = rsa.private_key_to_pem_passphrase(
-		// 	Cipher::aes_128_cbc(), 
-		// 	passphrase.as_bytes()
-		// ).unwrap();
-		// let public_key: Vec<u8> = rsa.public_key_to_pem_pkcs1().unwrap();
-
-		// println!("Private key: {}", String::from_utf8(private_key).unwrap());
-		// println!("Public key: {}", String::from_utf8(public_key).unwrap());
-
-
 		let secp = Secp256k1::new();
 		let mut rng = OsRng::new().unwrap();
 		let (secret_key, public_key) = secp.generate_keypair(&mut rng);
 
 		assert_eq!(public_key.to_string(), PublicKey::from_secret_key(&secp, &secret_key).to_string());
-		println!("{}\n{}", public_key.to_string(), secret_key.display_secret());
+		println!("Public key: {}\nPrivate Key: {}", public_key.to_string(), secret_key.display_secret());
 
 		return Ok(());
 	}
@@ -87,8 +68,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 	let mut dht_swarm = Dht::new(swarm);
 
-	let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
-	let listener = TcpListener::bind("192.168.0.164:8000").await?;
+	// let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+	let listener = TcpListener::bind("192.168.0.164:8001").await?;
 	
 	loop {
 		tokio::select! {
@@ -101,8 +82,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					_ => {}
 				};
 			}
-			line = stdin.select_next_some() => 
-				handle_input(&mut dht_swarm.0.behaviour_mut(), line.expect("stdin closed")),
+			// line = stdin.select_next_some() => 
+			// 	handle_input(&mut dht_swarm.0.behaviour_mut(), line.expect("stdin closed")),
 			event = dht_swarm.0.select_next_some() => match event {
 				SwarmEvent::NewListenAddr { address, .. } => {
 					println!("Listening in {:?}", address);
@@ -113,156 +94,155 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 }
 
-fn handle_input(behaviour: &mut MyBehaviour, line: String) {
-	let mut args = line.split(' '); 
 
-	let kad = &mut behaviour.kademlia;
+// fn handle_input(behaviour: &mut MyBehaviour, line: String) {
+// 	let mut args = line.split(' '); 
 
-	match args.next() {
-		Some("GET") => {
-			let location = {
-				match args.next() {
-					Some(key) => key.to_string(),
-					None => {
-						eprintln!("Expected location");
-						return;
-					}
-				}
-			};
+// 	let kad = &mut behaviour.kademlia;
 
-			let mut key_idx: usize = 0;
-			let parts: Vec<String> = location.split("/").map(|s| s.to_string()).collect();
-			for (idx, part) in parts.iter().rev().enumerate() {
-				if part.starts_with("e_") {
-					key_idx = parts.len() - idx - 1;
-					break
-				}
-			}
+// 	match args.next() {
+// 		Some("GET") => {
+// 			let location = {
+// 				match args.next() {
+// 					Some(key) => key.to_string(),
+// 					None => {
+// 						eprintln!("Expected location");
+// 						return;
+// 					}
+// 				}
+// 			};
 
-			let username = {
-				match args.next() {
-					Some(name) => name.to_string(),
-					None => {
-						eprintln!("Expected username");
-						return;
-					}
-				}
-			};	
+// 			let mut key_idx: usize = 0;
+// 			let parts: Vec<String> = location.split("/").map(|s| s.to_string()).collect();
+// 			for (idx, part) in parts.iter().rev().enumerate() {
+// 				if part.starts_with("e_") {
+// 					key_idx = parts.len() - idx - 1;
+// 					break
+// 				}
+// 			}
 
-			let query_id = kad.get_record(&Key::new(&parts[key_idx].to_string()), Quorum::One);
-			behaviour.queries.lock().unwrap().insert(
-				query_id, 
-				Query { 
-					username: String::from(username),
-					location: parts[key_idx..].join("/")
-				}
-			);
-		},
-		Some("PUT") => {
-			let name = {
-				match args.next() {
-					Some(name) => name.to_string(),
-					None => {
-						eprintln!("Expected name");
-						return;
-					}
-				}
-			};	
+// 			let username = {
+// 				match args.next() {
+// 					Some(name) => name.to_string(),
+// 					None => {
+// 						eprintln!("Expected username");
+// 						return;
+// 					}
+// 				}
+// 			};	
 
-			let username = {
-				match args.next() {
-					Some(name) => name.to_string(),
-					None => {
-						eprintln!("Expected username");
-						return;
-					}
-				}
-			};	
+// 			let query_id = kad.get_record(&Key::new(&parts[key_idx].to_string()), Quorum::One);
+// 			behaviour.queries.lock().unwrap().insert(
+// 				query_id, 
+// 				Query { 
+// 					username: String::from(username),
+// 					location: parts[key_idx..].join("/")
+// 				}
+// 			);
+// 		},
+// 		Some("PUT") => {
+// 			let name = {
+// 				match args.next() {
+// 					Some(name) => name.to_string(),
+// 					None => {
+// 						eprintln!("Expected name");
+// 						return;
+// 					}
+// 				}
+// 			};	
 
-			let public = {
-				match args.next() {
-					Some(value) => value == "true",
-					None => {
-						eprintln!("Expected true or false");
-						return;
-					}
-				}
-			};
+// 			let username = {
+// 				match args.next() {
+// 					Some(name) => name.to_string(),
+// 					None => {
+// 						eprintln!("Expected username");
+// 						return;
+// 					}
+// 				}
+// 			};	
 
-			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
-			let mut _curr_idx: usize = 0;
+// 			let public = {
+// 				match args.next() {
+// 					Some(value) => value == "true",
+// 					None => {
+// 						eprintln!("Expected true or false");
+// 						return;
+// 					}
+// 				}
+// 			};
 
-			let read_users_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
-			let read_users = if public {
-				Vec::<String>::new()
-			} else {
-				rest[_curr_idx + 1.._curr_idx + read_users_count].to_vec()
-			};
-			_curr_idx += read_users_count;
+// 			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
+// 			let mut _curr_idx: usize = 0;
 
-			let children_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
-			let children = rest[_curr_idx + 1.._curr_idx + children_count].to_vec();
-			_curr_idx += children_count;
+// 			let read_users_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
+// 			let read_users = if public {
+// 				Vec::<String>::new()
+// 			} else {
+// 				rest[_curr_idx + 1.._curr_idx + read_users_count].to_vec()
+// 			};
+// 			_curr_idx += read_users_count;
 
-			let new_entry = Entry {
-				name: name.clone(),
-				user: username.to_string(),
-				public,
-				read_users: read_users,
-				children: children.iter().filter(|s| {
-					!s.contains("/")
-				}).map(|s| Children {
-					name: s.to_string(),
-					r#type: "file".to_string(),
-					entry: "".to_string()
-				}).collect()
-			};
+// 			let children_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
+// 			let children = rest[_curr_idx + 1.._curr_idx + children_count].to_vec();
+// 			_curr_idx += children_count;
 
-			let value = serde_json::to_vec(&new_entry).unwrap();
+// 			let new_entry = Entry {
+// 				name: name.clone(),
+// 				user: username.to_string(),
+// 				public,
+// 				read_users: read_users,
+// 				children: children.iter().filter(|s| {
+// 					!s.contains("/")
+// 				}).map(|s| Children {
+// 					name: s.to_string(),
+// 					r#type: "file".to_string(),
+// 					entry: "".to_string()
+// 				}).collect()
+// 			};
 
-			let mut hasher = Sha256::new();
-			hasher.update(format!("{}{}", username, name));
-			let key: String = format!("e_{:X}", hasher.finalize());
+// 			let value = serde_json::to_vec(&new_entry).unwrap();
 
-			let record = Record {
-				key: Key::new(&key),
-				value,
-				publisher: None,
-				expires: None,
-			};
+// 			let key: String = "e_".to_string();
 
-			kad
-				.put_record(record, Quorum::One)
-				.expect("Failed to store record locally.");
-		},
-		Some("GET_PROVIDERS") => {
-			let key = {
-				match args.next() {
-					Some(key) => Key::new(&key),
-					None => {
-						eprintln!("Expected key");
-						return;
-					}
-				}
-			};
+// 			let record = Record {
+// 				key: Key::new(&key),
+// 				value,
+// 				publisher: None,
+// 				expires: None,
+// 			};
 
-			kad.get_providers(key);
-		},
-		Some("PUT_PROVIDER") => {
-			let key = {
-				match args.next() {
-					Some(key) => Key::new(&key),
-					None => {
-						eprintln!("Expected key");
-						return;
-					}
-				}
-			};
+// 			kad
+// 				.put_record(record, Quorum::One)
+// 				.expect("Failed to store record locally.");
+// 		},
+// 		Some("GET_PROVIDERS") => {
+// 			let key = {
+// 				match args.next() {
+// 					Some(key) => Key::new(&key),
+// 					None => {
+// 						eprintln!("Expected key");
+// 						return;
+// 					}
+// 				}
+// 			};
 
-			kad
-				.start_providing(key)
-				.expect("Failed to start providing key");
-		},
-		_ => {}
-	}
-}
+// 			kad.get_providers(key);
+// 		},
+// 		Some("PUT_PROVIDER") => {
+// 			let key = {
+// 				match args.next() {
+// 					Some(key) => Key::new(&key),
+// 					None => {
+// 						eprintln!("Expected key");
+// 						return;
+// 					}
+// 				}
+// 			};
+
+// 			kad
+// 				.start_providing(key)
+// 				.expect("Failed to start providing key");
+// 		},
+// 		_ => {}
+// 	}
+// }
