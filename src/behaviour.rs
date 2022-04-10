@@ -3,15 +3,12 @@ use libp2p::kad::{
      Kademlia,
      KademliaEvent,
      QueryResult,
-     QueryId
 };
 use libp2p::{
     mdns::{Mdns, MdnsEvent},
     NetworkBehaviour, 
     swarm::{NetworkBehaviourEventProcess}
 };
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]

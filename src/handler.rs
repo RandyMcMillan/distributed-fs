@@ -44,8 +44,8 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 	match req.parse(&buffer) {
 		Ok(..) => {},
 		Err(_error) => return Err("Failed to parse headers".to_string())
-
 	};
+
 
 	let request = String::from_utf8_lossy(&buffer[..bytes_read]);
 	let mut parts = request.split("\r\n\r\n");
@@ -81,9 +81,11 @@ pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(),
 
 		let key: String = format!("e_{}", sig.to_string());
 
+		stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key.clone()).as_bytes()).await.unwrap();
+
 		match swarm.put(Key::new(&key), value).await {
 			Ok(_) => {
-				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await.unwrap();
+				println!("Success");
 			},
 			Err(err) => {
 				eprintln!("{}", err);

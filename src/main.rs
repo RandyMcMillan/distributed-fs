@@ -1,10 +1,5 @@
 use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::{
-     Kademlia,
-     record::Key,
-     Quorum,
-     Record,
-};
+use libp2p::kad::Kademlia;
 use libp2p::{
     development_transport, 
     identity,
@@ -14,19 +9,29 @@ use libp2p::{
     swarm::SwarmEvent
 };
 use async_std::task;
-use futures::{prelude::*};
 use std::error::Error;
 use tokio::net::TcpListener; 
 use std::env;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, Secp256k1};
 
+use hello::say_server::{Say, SayServer};
+use hello::{SayResponse, SayRequest, GetRequest, GetResponse};
+
+use tonic::{transport::Server, Request, Response, Status};
+use tokio::sync::mpsc;
+use futures::stream::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
+
+mod hello {
+	tonic::include_proto!("hello");
+}
+
 mod entry;
 mod behaviour;
 mod handler;
 mod dht;
 
-use entry::{Entry, Children};
 use behaviour::MyBehaviour;
 use dht::Dht;
 
@@ -46,6 +51,29 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
+pub struct MySay {
+	mpsc_sender: mpsc::Sender<String>,
+}
+
+#[tonic::async_trait]
+impl Say for MySay {
+	async fn send(&self, request: Request<SayRequest>) -> Result<Response<SayResponse>, Status> {
+		println!("{:?}", request);
+		Ok(Response::new(SayResponse {
+			message: format!("hello {}", request.get_ref().name),
+		}))
+	}
+
+	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
+		self.mpsc_sender.send(request.get_ref().location.to_owned()).await;
+		println!("{:?}", request.remote_addr());
+		
+		Ok(Response::new(GetResponse {
+			message: format!("get {}", request.get_ref().location),
+		}))
+	}
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<String> = env::args().collect();
@@ -62,15 +90,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 
 	let mut swarm = create_swarm().await;
-
-	// Listen on all interfaces and whatever port the OS assigns.
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
-
 	let mut dht_swarm = Dht::new(swarm);
 
-	// let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
-	let listener = TcpListener::bind("192.168.0.164:8001").await?;
+	let mut listener = TcpListener::bind("192.168.0.164:8000").await?;
+
+	let addr = "192.168.0.164:50051".parse().unwrap();
+
+	let (mut mpsc_sender, mut mpsc_receiver) = mpsc::channel::<String>(32);
+
+	tokio::spawn(async move {
+		let mut mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
+
+		while let Some(data) = mpsc_receiver_stream.next().await {
+			println!("Data: {}", data);
+		}
+	});
+
+	let say = MySay {
+		mpsc_sender
+	};
+
+        println!("Server listening on {}", addr);
+	       
+	let server = Server::builder().add_service(SayServer::new(say));
 	
+	tokio::spawn(async move {
+		server.serve(addr).await;
+	});
+
 	loop {
 		tokio::select! {
 			s = listener.accept() => {
@@ -82,167 +130,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					_ => {}
 				};
 			}
-			// line = stdin.select_next_some() => 
-			// 	handle_input(&mut dht_swarm.0.behaviour_mut(), line.expect("stdin closed")),
-			event = dht_swarm.0.select_next_some() => match event {
-				SwarmEvent::NewListenAddr { address, .. } => {
-					println!("Listening in {:?}", address);
-				},
-				_ => {}
+			event = dht_swarm.0.select_next_some() => {
+				match event {
+					SwarmEvent::NewListenAddr { address, .. } => {
+						println!("Listening in {:?}", address);
+					},
+					_ => {}
+				};
 			}
 		}
 	}
 }
-
-
-// fn handle_input(behaviour: &mut MyBehaviour, line: String) {
-// 	let mut args = line.split(' '); 
-
-// 	let kad = &mut behaviour.kademlia;
-
-// 	match args.next() {
-// 		Some("GET") => {
-// 			let location = {
-// 				match args.next() {
-// 					Some(key) => key.to_string(),
-// 					None => {
-// 						eprintln!("Expected location");
-// 						return;
-// 					}
-// 				}
-// 			};
-
-// 			let mut key_idx: usize = 0;
-// 			let parts: Vec<String> = location.split("/").map(|s| s.to_string()).collect();
-// 			for (idx, part) in parts.iter().rev().enumerate() {
-// 				if part.starts_with("e_") {
-// 					key_idx = parts.len() - idx - 1;
-// 					break
-// 				}
-// 			}
-
-// 			let username = {
-// 				match args.next() {
-// 					Some(name) => name.to_string(),
-// 					None => {
-// 						eprintln!("Expected username");
-// 						return;
-// 					}
-// 				}
-// 			};	
-
-// 			let query_id = kad.get_record(&Key::new(&parts[key_idx].to_string()), Quorum::One);
-// 			behaviour.queries.lock().unwrap().insert(
-// 				query_id, 
-// 				Query { 
-// 					username: String::from(username),
-// 					location: parts[key_idx..].join("/")
-// 				}
-// 			);
-// 		},
-// 		Some("PUT") => {
-// 			let name = {
-// 				match args.next() {
-// 					Some(name) => name.to_string(),
-// 					None => {
-// 						eprintln!("Expected name");
-// 						return;
-// 					}
-// 				}
-// 			};	
-
-// 			let username = {
-// 				match args.next() {
-// 					Some(name) => name.to_string(),
-// 					None => {
-// 						eprintln!("Expected username");
-// 						return;
-// 					}
-// 				}
-// 			};	
-
-// 			let public = {
-// 				match args.next() {
-// 					Some(value) => value == "true",
-// 					None => {
-// 						eprintln!("Expected true or false");
-// 						return;
-// 					}
-// 				}
-// 			};
-
-// 			let rest: Vec<String> = args.map(|s| s.to_string()).collect();
-// 			let mut _curr_idx: usize = 0;
-
-// 			let read_users_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
-// 			let read_users = if public {
-// 				Vec::<String>::new()
-// 			} else {
-// 				rest[_curr_idx + 1.._curr_idx + read_users_count].to_vec()
-// 			};
-// 			_curr_idx += read_users_count;
-
-// 			let children_count: usize = rest[_curr_idx as usize].parse::<usize>().unwrap() + 1;
-// 			let children = rest[_curr_idx + 1.._curr_idx + children_count].to_vec();
-// 			_curr_idx += children_count;
-
-// 			let new_entry = Entry {
-// 				name: name.clone(),
-// 				user: username.to_string(),
-// 				public,
-// 				read_users: read_users,
-// 				children: children.iter().filter(|s| {
-// 					!s.contains("/")
-// 				}).map(|s| Children {
-// 					name: s.to_string(),
-// 					r#type: "file".to_string(),
-// 					entry: "".to_string()
-// 				}).collect()
-// 			};
-
-// 			let value = serde_json::to_vec(&new_entry).unwrap();
-
-// 			let key: String = "e_".to_string();
-
-// 			let record = Record {
-// 				key: Key::new(&key),
-// 				value,
-// 				publisher: None,
-// 				expires: None,
-// 			};
-
-// 			kad
-// 				.put_record(record, Quorum::One)
-// 				.expect("Failed to store record locally.");
-// 		},
-// 		Some("GET_PROVIDERS") => {
-// 			let key = {
-// 				match args.next() {
-// 					Some(key) => Key::new(&key),
-// 					None => {
-// 						eprintln!("Expected key");
-// 						return;
-// 					}
-// 				}
-// 			};
-
-// 			kad.get_providers(key);
-// 		},
-// 		Some("PUT_PROVIDER") => {
-// 			let key = {
-// 				match args.next() {
-// 					Some(key) => Key::new(&key),
-// 					None => {
-// 						eprintln!("Expected key");
-// 						return;
-// 					}
-// 				}
-// 			};
-
-// 			kad
-// 				.start_providing(key)
-// 				.expect("Failed to start providing key");
-// 		},
-// 		_ => {}
-// 	}
-// }
