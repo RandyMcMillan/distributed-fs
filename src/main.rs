@@ -6,25 +6,26 @@ use libp2p::{
     mdns::{Mdns, MdnsConfig},
     PeerId, 
     Swarm,
-    swarm::SwarmEvent
 };
 use async_std::task;
 use std::error::Error;
-use tokio::net::TcpListener; 
 use std::env;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{PublicKey, Secp256k1};
+use secp256k1::Secp256k1;
 
-use hello::say_server::{Say, SayServer};
-use hello::{SayResponse, SayRequest, GetRequest, GetResponse};
+use api::api_server::{Api, ApiServer};
+use api::{GetRequest, GetResponse, PutResponse, PutRequest};
 
 use tonic::{transport::Server, Request, Response, Status};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, broadcast};
 use futures::stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
-mod hello {
-	tonic::include_proto!("hello");
+use tokio::sync::Mutex;
+use std::sync::Arc;
+
+mod api {
+	tonic::include_proto!("api");
 }
 
 mod entry;
@@ -51,25 +52,56 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         Swarm::new(transport, behaviour, local_peer_id)
 }
 
-pub struct MySay {
-	mpsc_sender: mpsc::Sender<String>,
+#[derive(Debug)]
+pub struct DhtGetRecord {
+	pub location: String
+}
+
+#[derive(Debug)]
+pub struct DhtPutRecord {
+	pub name: String
+}
+
+#[derive(Debug)]
+pub enum DhtRequestType {
+	GetRecord(DhtGetRecord),
+	PutRecord(DhtPutRecord),
+}
+
+pub struct MyApi {
+	pub mpsc_sender: mpsc::Sender<DhtRequestType>,
+	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<String>>>
 }
 
 #[tonic::async_trait]
-impl Say for MySay {
-	async fn send(&self, request: Request<SayRequest>) -> Result<Response<SayResponse>, Status> {
-		println!("{:?}", request);
-		Ok(Response::new(SayResponse {
-			message: format!("hello {}", request.get_ref().name),
-		}))
-	}
-
+impl Api for MyApi {
 	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-		self.mpsc_sender.send(request.get_ref().location.to_owned()).await;
-		println!("{:?}", request.remote_addr());
+		let dht_request = DhtRequestType::GetRecord(DhtGetRecord {
+			location: request.get_ref().location.to_owned()
+		});
+
+		self.mpsc_sender.send(dht_request).await;
+		let dht_response = self.broadcast_receiver.lock().await.recv().await; 
+		println!("{:?}", dht_response);
 		
 		Ok(Response::new(GetResponse {
 			message: format!("get {}", request.get_ref().location),
+			found: false
+		}))
+	}
+
+	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
+		println!("{:?}", request);
+		let dht_request = DhtRequestType::PutRecord(DhtPutRecord {
+			name: request.get_ref().entry.as_ref().unwrap().name.to_owned()
+		});
+
+		self.mpsc_sender.send(dht_request).await;
+		let dht_response = self.broadcast_receiver.lock().await.recv().await; 
+		println!("{:?}", dht_response);
+
+		Ok(Response::new(PutResponse {
+			key: "key".to_owned()
 		}))
 	}
 }
@@ -83,7 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		let mut rng = OsRng::new().unwrap();
 		let (secret_key, public_key) = secp.generate_keypair(&mut rng);
 
-		assert_eq!(public_key.to_string(), PublicKey::from_secret_key(&secp, &secret_key).to_string());
+		// assert_eq!(public_key.to_string(), PublicKey::from_secret_key(&secp, &secret_key).to_string());
 		println!("Public key: {}\nPrivate Key: {}", public_key.to_string(), secret_key.display_secret());
 
 		return Ok(());
@@ -93,51 +125,67 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
 	let mut dht_swarm = Dht::new(swarm);
 
-	let mut listener = TcpListener::bind("192.168.0.164:8000").await?;
-
-	let addr = "192.168.0.164:50051".parse().unwrap();
-
-	let (mut mpsc_sender, mut mpsc_receiver) = mpsc::channel::<String>(32);
+	let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
+	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<String>(32);
 
 	tokio::spawn(async move {
 		let mut mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
 
 		while let Some(data) = mpsc_receiver_stream.next().await {
-			println!("Data: {}", data);
+			match data {
+				DhtRequestType::GetRecord(dht_get_record) => {
+					let key = handler::get_location_key(dht_get_record.location);
+
+					match dht_swarm.get(&key).await {
+						Ok(record) => {
+							println!("{:?}", record);
+							broadcast_sender.send("Found".to_owned()).unwrap();
+						}
+						Err(error) => {
+							eprintln!("{}", error);
+							broadcast_sender.send("Not Found".to_owned()).unwrap();
+						}
+					};
+				},
+				DhtRequestType::PutRecord(dht_put_record) => {
+					println!("{:?}", dht_put_record);
+					broadcast_sender.send("Not Found".to_owned()).unwrap();
+				}
+			};
+
 		}
 	});
 
-	let say = MySay {
-		mpsc_sender
+	let say = MyApi {
+		mpsc_sender,
+		broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver))
 	};
+	let server = Server::builder().add_service(ApiServer::new(say));
 
-        println!("Server listening on {}", addr);
-	       
-	let server = Server::builder().add_service(SayServer::new(say));
-	
-	tokio::spawn(async move {
-		server.serve(addr).await;
-	});
+	let addr = "192.168.0.164:50051".parse().unwrap();
+	println!("Server listening on {}", addr);
+	server.serve(addr).await;
 
-	loop {
-		tokio::select! {
-			s = listener.accept() => {
-				let (socket, _) = s.unwrap();
-				match handler::handle_stream(socket, &mut dht_swarm).await {
-					Err(err)=> {
-						eprintln!("{}", err);
-					}
-					_ => {}
-				};
-			}
-			event = dht_swarm.0.select_next_some() => {
-				match event {
-					SwarmEvent::NewListenAddr { address, .. } => {
-						println!("Listening in {:?}", address);
-					},
-					_ => {}
-				};
-			}
-		}
-	}
+	// loop {
+	// 	tokio::select! {
+			// s = listener.accept() => {
+			// 	let (socket, _) = s.unwrap();
+			// 	match handler::handle_stream(socket, &mut dht_swarm).await {
+			// 		Err(err)=> {
+			// 			eprintln!("{}", err);
+			// 		}
+			// 		_ => {}
+			// 	};
+			// }
+	// 		event = dht_swarm.0.select_next_some() => {
+	// 			match event {
+	// 				SwarmEvent::NewListenAddr { address, .. } => {
+	// 					println!("Listening in {:?}", address);
+	// 				},
+	// 				_ => {}
+	// 			};
+	// 		}
+	// 	}
+	// }
+	Ok(())
 }

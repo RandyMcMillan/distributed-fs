@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package api;
+
+service Api {
+	rpc Get (GetRequest) returns (GetResponse);
+	rpc Put (PutRequest) returns (PutResponse);
+}
+
+message PutRequest {
+	string secret_key = 1;
+	string public_key = 2;
+	Entry entry = 3;
+}
+
+message Entry {
+	string name = 1;
+	bool public = 2;
+}
+
+
+message PutResponse {
+	string key = 1;
+}
+
+message GetRequest {
+	string secret_key = 1;
+	string public_key = 2;
+	string location = 3;
+}
+
+message GetResponse {
+	string message = 1;
+	bool found = 2;
+}

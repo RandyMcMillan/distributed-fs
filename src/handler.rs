@@ -140,7 +140,7 @@ async fn handle_get_error(mut stream: TcpStream, key: Key, error_message: String
 	Err(error_message)
 }
 
-fn get_location_key(input_location: String) -> Key {
+pub fn get_location_key(input_location: String) -> Key {
 	let mut key_idx: usize = 0;
 	let parts: Vec<String> = input_location.split("/").map(|s| s.to_string()).collect();
 
