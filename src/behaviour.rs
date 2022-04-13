@@ -51,29 +51,8 @@ impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
 	fn inject_event(&mut self, msg: KademliaEvent) {
 		match msg {
 			KademliaEvent::OutboundQueryCompleted { result, .. } => match result {
-				QueryResult::GetRecord(Ok(_ok)) => {
-					// for PeerRecord {
-					// 	record: Record { key, value, .. },
-					// 	..
-					// } in ok.records {
-					// 	let query = self.queries.lock().unwrap().remove(&id).unwrap();
-					// 	let entry: Entry = serde_json::from_str(&str::from_utf8(&value).unwrap()).unwrap();
-
-					// 	let parts: Vec<String> = query.location.split("/").map(|s| s.to_string()).collect();
-
-					// 	if parts.len() == 1 {
-					// 		if entry.user == query.username || entry.public || entry.read_users.contains(&query.username)  {
-					// 			println!("{:?}", entry);
-					// 		} else {
-					// 			println!("Read access to {:?} not allowed", key);
-					// 		}
-					// 	} else {
-					// 		let _path = parts[1..].join("/");
-					// 	}
-					// }
-				},
+				QueryResult::GetRecord(Ok(_ok)) => {},
 				QueryResult::GetRecord(Err(err)) => {
-					// self.queries.lock().unwrap().remove(&id).unwrap();
 					eprintln!("Failed to get record: {:?}", err);
 				},
 				_ => {

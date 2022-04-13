@@ -8,14 +8,15 @@ service Api {
 }
 
 message PutRequest {
-	string secret_key = 1;
-	string public_key = 2;
-	Entry entry = 3;
+	string public_key = 1;
+	Entry entry = 2;
 }
 
 message Entry {
-	string name = 1;
+	string owner = 1;
 	bool public = 2;
+	repeated string read_users = 3;
+	string name = 4;
 }
 
 
@@ -24,9 +25,8 @@ message PutResponse {
 }
 
 message GetRequest {
-	string secret_key = 1;
-	string public_key = 2;
-	string location = 3;
+	string public_key = 1;
+	string location = 2;
 }
 
 message GetResponse {

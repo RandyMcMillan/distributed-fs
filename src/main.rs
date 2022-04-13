@@ -1,5 +1,5 @@
 use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::Kademlia;
+use libp2p::kad::{Kademlia, record::Key};
 use libp2p::{
     development_transport, 
     identity,
@@ -10,11 +10,13 @@ use libp2p::{
 use async_std::task;
 use std::error::Error;
 use std::env;
+use std::str::FromStr;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::Secp256k1;
+use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
+use secp256k1::hashes::sha256;
 
 use api::api_server::{Api, ApiServer};
-use api::{GetRequest, GetResponse, PutResponse, PutRequest};
+use api::{GetRequest, GetResponse, PutResponse, PutRequest, Entry};
 
 use tonic::{transport::Server, Request, Response, Status};
 use tokio::sync::{mpsc, broadcast};
@@ -59,7 +61,7 @@ pub struct DhtGetRecord {
 
 #[derive(Debug)]
 pub struct DhtPutRecord {
-	pub name: String
+	pub entry: Entry
 }
 
 #[derive(Debug)]
@@ -93,15 +95,14 @@ impl Api for MyApi {
 	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
 		println!("{:?}", request);
 		let dht_request = DhtRequestType::PutRecord(DhtPutRecord {
-			name: request.get_ref().entry.as_ref().unwrap().name.to_owned()
+			entry: request.into_inner().entry.unwrap()
 		});
 
 		self.mpsc_sender.send(dht_request).await;
-		let dht_response = self.broadcast_receiver.lock().await.recv().await; 
-		println!("{:?}", dht_response);
+		let dht_response = self.broadcast_receiver.lock().await.recv().await.unwrap(); 
 
 		Ok(Response::new(PutResponse {
-			key: "key".to_owned()
+			key: dht_response
 		}))
 	}
 }
@@ -148,8 +149,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					};
 				},
 				DhtRequestType::PutRecord(dht_put_record) => {
-					println!("{:?}", dht_put_record);
-					broadcast_sender.send("Not Found".to_owned()).unwrap();
+					let secp = Secp256k1::new();
+					let secret_key = SecretKey::from_str("566f43d8c8436138c980dcf7f47a960282bd94af418d3f36cac68048a0c8a878").unwrap();
+					let pub_key = PublicKey::from_secret_key(&secp, &secret_key).to_string();
+
+					let value = serde_json::to_vec(&dht_put_record.entry).unwrap();
+
+					let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", pub_key.to_string(), dht_put_record.entry.name).as_bytes());
+					let sig = secp.sign_ecdsa(&message, &secret_key);
+
+					let key: String = format!("e_{}", sig.to_string());
+
+					match dht_swarm.put(Key::new(&key.clone()), value).await {
+						Ok(_) => {
+							broadcast_sender.send(key.to_owned()).unwrap();
+						}
+						Err(error) => {
+							eprintln!("{:?}", error);
+							broadcast_sender.send(key.to_owned()).unwrap();
+						}
+					};
+
 				}
 			};
 
