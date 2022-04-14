@@ -9,7 +9,7 @@ use libp2p::{
 };
 use async_std::task;
 use std::error::Error;
-use std::env;
+use std::{str, env};
 use std::str::FromStr;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
@@ -61,7 +61,9 @@ pub struct DhtGetRecord {
 
 #[derive(Debug)]
 pub struct DhtPutRecord {
-	pub entry: Entry
+	pub entry: Entry,
+	pub signature: String,
+	pub public_key: String
 }
 
 #[derive(Debug)]
@@ -72,37 +74,48 @@ pub enum DhtRequestType {
 
 pub struct MyApi {
 	pub mpsc_sender: mpsc::Sender<DhtRequestType>,
-	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<String>>>
+	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<Option<Entry>>>>
 }
 
 #[tonic::async_trait]
 impl Api for MyApi {
 	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
+		println!("{}", request.metadata().get("public_key").unwrap().to_str().unwrap());
 		let dht_request = DhtRequestType::GetRecord(DhtGetRecord {
 			location: request.get_ref().location.to_owned()
 		});
 
 		self.mpsc_sender.send(dht_request).await;
-		let dht_response = self.broadcast_receiver.lock().await.recv().await; 
-		println!("{:?}", dht_response);
-		
-		Ok(Response::new(GetResponse {
-			message: format!("get {}", request.get_ref().location),
-			found: false
-		}))
+
+		match self.broadcast_receiver.lock().await.recv().await {
+			Ok(entry) => {
+				Ok(Response::new(GetResponse {
+					message: format!("get {}", request.get_ref().location),
+					entry
+				}))
+			}
+			Err(error) => {
+				eprintln!("{}", error);
+				Ok(Response::new(GetResponse {
+					message: format!("get {}", request.get_ref().location),
+					entry: None
+				}))
+			}
+		}
 	}
 
 	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
-		println!("{:?}", request);
 		let dht_request = DhtRequestType::PutRecord(DhtPutRecord {
-			entry: request.into_inner().entry.unwrap()
+			public_key: request.metadata().get("public_key").unwrap().to_str().unwrap().to_string(),
+			signature: request.get_ref().signature.clone(),
+			entry: request.into_inner().entry.unwrap(),
 		});
 
 		self.mpsc_sender.send(dht_request).await;
 		let dht_response = self.broadcast_receiver.lock().await.recv().await.unwrap(); 
 
 		Ok(Response::new(PutResponse {
-			key: dht_response
+			key: "key".to_string()
 		}))
 	}
 }
@@ -116,7 +129,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		let mut rng = OsRng::new().unwrap();
 		let (secret_key, public_key) = secp.generate_keypair(&mut rng);
 
-		// assert_eq!(public_key.to_string(), PublicKey::from_secret_key(&secp, &secret_key).to_string());
 		println!("Public key: {}\nPrivate Key: {}", public_key.to_string(), secret_key.display_secret());
 
 		return Ok(());
@@ -127,7 +139,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	let mut dht_swarm = Dht::new(swarm);
 
 	let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
-	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<String>(32);
+	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<Option<Entry>>(32);
 
 	tokio::spawn(async move {
 		let mut mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
@@ -139,34 +151,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 					match dht_swarm.get(&key).await {
 						Ok(record) => {
-							println!("{:?}", record);
-							broadcast_sender.send("Found".to_owned()).unwrap();
+							let record: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+							broadcast_sender.send(Some(record)).unwrap();
 						}
 						Err(error) => {
-							eprintln!("{}", error);
-							broadcast_sender.send("Not Found".to_owned()).unwrap();
+							eprintln!("{:?}", error);
+							broadcast_sender.send(None).unwrap();
 						}
 					};
 				},
 				DhtRequestType::PutRecord(dht_put_record) => {
-					let secp = Secp256k1::new();
-					let secret_key = SecretKey::from_str("566f43d8c8436138c980dcf7f47a960282bd94af418d3f36cac68048a0c8a878").unwrap();
-					let pub_key = PublicKey::from_secret_key(&secp, &secret_key).to_string();
+					// let secp = Secp256k1::new();
+					// let secret_key = SecretKey::from_str("566f43d8c8436138c980dcf7f47a960282bd94af418d3f36cac68048a0c8a878").unwrap();
+					// let pub_key = PublicKey::from_secret_key(&secp, &secret_key).to_string();
 
 					let value = serde_json::to_vec(&dht_put_record.entry).unwrap();
 
-					let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", pub_key.to_string(), dht_put_record.entry.name).as_bytes());
-					let sig = secp.sign_ecdsa(&message, &secret_key);
+					// let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", pub_key.to_string(), dht_put_record.entry.name).as_bytes());
+					// let sig = secp.sign_ecdsa(&message, &secret_key);
 
-					let key: String = format!("e_{}", sig.to_string());
+					let key: String = format!("e_{}", dht_put_record.signature);
 
 					match dht_swarm.put(Key::new(&key.clone()), value).await {
 						Ok(_) => {
-							broadcast_sender.send(key.to_owned()).unwrap();
+							// broadcast_sender.send(key.to_owned()).unwrap();
 						}
 						Err(error) => {
 							eprintln!("{:?}", error);
-							broadcast_sender.send(key.to_owned()).unwrap();
+							// broadcast_sender.send(key.to_owned()).unwrap();
 						}
 					};
 
@@ -186,26 +198,5 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	println!("Server listening on {}", addr);
 	server.serve(addr).await;
 
-	// loop {
-	// 	tokio::select! {
-			// s = listener.accept() => {
-			// 	let (socket, _) = s.unwrap();
-			// 	match handler::handle_stream(socket, &mut dht_swarm).await {
-			// 		Err(err)=> {
-			// 			eprintln!("{}", err);
-			// 		}
-			// 		_ => {}
-			// 	};
-			// }
-	// 		event = dht_swarm.0.select_next_some() => {
-	// 			match event {
-	// 				SwarmEvent::NewListenAddr { address, .. } => {
-	// 					println!("Listening in {:?}", address);
-	// 				},
-	// 				_ => {}
-	// 			};
-	// 		}
-	// 	}
-	// }
 	Ok(())
 }

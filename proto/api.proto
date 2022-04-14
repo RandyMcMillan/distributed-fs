@@ -8,7 +8,7 @@ service Api {
 }
 
 message PutRequest {
-	string public_key = 1;
+	string signature = 1;
 	Entry entry = 2;
 }
 
@@ -18,7 +18,6 @@ message Entry {
 	repeated string read_users = 3;
 	string name = 4;
 }
-
 
 message PutResponse {
 	string key = 1;
@@ -31,5 +30,5 @@ message GetRequest {
 
 message GetResponse {
 	string message = 1;
-	bool found = 2;
+	optional Entry entry = 2;
 }
