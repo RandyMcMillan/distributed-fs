@@ -29,6 +29,5 @@ message GetRequest {
 }
 
 message GetResponse {
-	string message = 1;
-	optional Entry entry = 2;
+	optional Entry entry = 1;
 }
