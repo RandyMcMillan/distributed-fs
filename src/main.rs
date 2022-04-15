@@ -14,11 +14,12 @@ use std::str::FromStr;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
 use secp256k1::hashes::sha256;
+use secp256k1::ecdsa::Signature;
 
 use api::api_server::{Api, ApiServer};
 use api::{GetRequest, GetResponse, PutResponse, PutRequest, Entry};
 
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{transport::Server, Request, Response, Status, Code};
 use tokio::sync::{mpsc, broadcast};
 use futures::stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
@@ -61,7 +62,7 @@ pub struct DhtGetRecordRequest {
 
 #[derive(Debug)]
 pub struct DhtPutRecordRequest {
-        pub public_key: String,
+        pub public_key: PublicKey,
 	pub entry: Entry,
 	pub signature: String,
 }
@@ -74,7 +75,8 @@ pub enum DhtRequestType {
 
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordResponse {
-	pub entry: Option<Entry>
+	pub entry: Option<Entry>,
+	pub error: Option<String>
 }
 
 impl DhtGetRecordResponse {
@@ -83,12 +85,16 @@ impl DhtGetRecordResponse {
                         entry: None
                 }))
         }
+
+	fn not_found() -> Result<Response<GetResponse>, Status>  {
+		Err(Status::new(Code::NotFound, "Entry not found"))
+	}
 }
 
 #[derive(Debug, Clone)]
 pub struct DhtPutRecordResponse {
 	pub signature: Option<String>,
-	pub error: Option<String>
+	pub error: Option<(Code, String)>
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +119,10 @@ impl Api for MyApi {
 		match self.broadcast_receiver.lock().await.recv().await {
 			Ok(dht_response) => match dht_response {
                                 DhtResponseType::GetRecord(dht_get_response) => {
+                                        if let Some(error) = dht_get_response.error {
+						return DhtGetRecordResponse::not_found();
+                                        }
+
                                         Ok(Response::new(GetResponse {
                                                 entry: dht_get_response.entry
                                         }))
@@ -120,16 +130,17 @@ impl Api for MyApi {
                                 _ => DhtGetRecordResponse::default()
                         }
 			Err(error) => {
-				eprintln!("{}", error);
+				eprintln!("Error {}", error);
                                 DhtGetRecordResponse::default()
 			}
 		}
 	}
 
 	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
+		let signature: String = request.get_ref().signature.clone();
 		let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-			public_key: request.metadata().get("public_key").unwrap().to_str().unwrap().to_string(),
-			signature: request.get_ref().signature.clone(),
+			public_key: PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap(),
+			signature: signature.clone(),
 			entry: request.into_inner().entry.unwrap(),
 		});
 
@@ -137,20 +148,28 @@ impl Api for MyApi {
 		match self.broadcast_receiver.lock().await.recv().await {
                         Ok(dht_response) => match dht_response {
                                 DhtResponseType::PutRecord(dht_put_response) => {
-                                        if let Some(error) = dht_put_response.error {
-                                                println!("Error in dht: {}", error);
+                                        if let Some((code, message)) = dht_put_response.error {
+						return Err(Status::new(code, message));
                                         }
+
+					Ok(Response::new(PutResponse {
+						key: signature.clone()
+					}))
                                 }
-                                _ => println!("unknown error")
+                                _ => {
+					println!("unknown error");
+					Ok(Response::new(PutResponse {
+						key: signature.clone()
+					}))
+				}
                         }
                         Err(error) => {
 				eprintln!("{}", error);
+				Ok(Response::new(PutResponse {
+					key: signature
+				}))
                         }
-                };
-
-		Ok(Response::new(PutResponse {
-			key: "key".to_string()
-		}))
+                }
 	}
 }
 
@@ -187,22 +206,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
 						Ok(record) => {
 							let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse { entry: Some(entry) })).unwrap();
+							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+								entry: Some(entry),
+								error: None
+							})).unwrap();
                                                 }
 						Err(error) => {
-							eprintln!("{:?}", error);
-							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse { entry: None })).unwrap();
+							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+								entry: None,
+								error: Some(error.to_string())
+							})).unwrap();
 						}
 					};
 				}
 				DhtRequestType::PutRecord(dht_put_record) => {
 					let value = serde_json::to_vec(&dht_put_record.entry).unwrap();
-
-					// let secp = Secp256k1::new();
-					// let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", pub_key.to_string(), dht_put_record.entry.name).as_bytes());
-					// let sig = secp.sign_ecdsa(&message, &secret_key);
-
+					let pub_key = dht_put_record.public_key.clone();
 					let key: String = format!("e_{}", dht_put_record.signature);
+
+					let secp = Secp256k1::new();
+					let sig = Signature::from_str(&dht_put_record.signature.clone()).unwrap();
+					let message = Message::from_hashed_data::<sha256::Hash>(
+						format!("{}/{}", pub_key, dht_put_record.entry.name).as_bytes()
+					);
+
+					match secp.verify_ecdsa(&message, &sig, &pub_key) {
+						Err(error) => {
+							broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
+								signature: Some(key),
+								error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
+							})).unwrap();
+							continue;
+						}
+						_ => {}
+					}
 
 					let res = match dht_swarm.put(Key::new(&key.clone()), value).await {
 						Ok(_) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
@@ -210,8 +247,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                                         error: None
                                                 }),
 						Err(error) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
-                                                        signature: None,
-                                                        error: Some(error.to_string())
+                                                        // signature: None,
+                                                        // error: Some((Code::Unknown, error.to_string()))
+                                                        error: None,
+							signature: Some(key)
                                                 })
 					};
 

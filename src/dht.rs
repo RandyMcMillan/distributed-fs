@@ -10,7 +10,6 @@ use libp2p::kad::{
 	record::Key
 };
 use futures::StreamExt;
-
 use crate::behaviour::{MyBehaviour, OutEvent};
 
 pub struct Dht (pub Swarm<MyBehaviour>);
