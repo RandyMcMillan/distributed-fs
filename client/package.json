@@ -13,10 +13,12 @@
   "license": "ISC",
   "dependencies": {
     "@grpc/grpc-js": "^1.6.5",
-    "@grpc/proto-loader": "^0.6.9"
+    "@grpc/proto-loader": "^0.6.9",
+    "split": "^1.0.1"
   },
   "devDependencies": {
     "@types/node": "^17.0.24",
+    "@types/split": "^1.0.1",
     "nodemon": "^2.0.15",
     "ts-node": "^10.7.0",
     "typescript": "^4.6.3"
