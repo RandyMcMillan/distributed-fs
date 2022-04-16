@@ -5,6 +5,7 @@ package api;
 service Api {
 	rpc Get (GetRequest) returns (GetResponse);
 	rpc Put (PutRequest) returns (PutResponse);
+	rpc Upload(stream FileUploadRequest) returns(FileUploadResponse);
 }
 
 message PutRequest {
@@ -24,9 +25,31 @@ message PutResponse {
 }
 
 message GetRequest {
+	string public_key = 1;
 	string location = 2;
 }
 
 message GetResponse {
 	optional Entry entry = 1;
+}
+
+message File {
+  bytes content = 1;
+}
+
+message MetaData {
+  string name = 1;
+  string type = 2;
+}
+
+
+message FileUploadResponse {
+  string name = 1;
+}
+
+message FileUploadRequest {
+  oneof upload_request {
+    MetaData metadata = 1;
+    File file = 2;
+  }
 }

@@ -15,25 +15,23 @@ use secp256k1::rand::rngs::OsRng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
-
-use api::api_server::{Api, ApiServer};
-use api::{GetRequest, GetResponse, PutResponse, PutRequest, Entry};
-
 use tonic::{transport::Server, Request, Response, Status, Code};
 use tokio::sync::{mpsc, broadcast};
 use futures::stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
-
 use tokio::sync::Mutex;
 use std::sync::Arc;
+
+use api::api_server::{Api, ApiServer};
+use api::{GetRequest, GetResponse, PutResponse, PutRequest, Entry, FileUploadRequest, FileUploadResponse, MetaData, File, file_upload_request::UploadRequest};
 
 mod api {
 	tonic::include_proto!("api");
 }
 
+mod handler;
 mod entry;
 mod behaviour;
-mod handler;
 mod dht;
 
 use behaviour::MyBehaviour;
@@ -171,6 +169,28 @@ impl Api for MyApi {
                         }
                 }
 	}
+
+        async fn upload(
+                &self, 
+                request:  Request<tonic::Streaming<FileUploadRequest>>
+        ) -> Result<Response<FileUploadResponse>, Status> {
+                let mut stream = request.into_inner();
+
+                while let Some(upload) = stream.next().await {
+                        let upload = upload.unwrap();
+
+                        match upload.upload_request.unwrap() {
+                                UploadRequest::Metadata(metadata) => {
+                                        println!("{:?}", metadata)
+                                }
+                                UploadRequest::File(file) => {
+                                        println!("{:?}", str::from_utf8(&file.content).unwrap())
+                                }
+                        };
+                }
+
+                Err(Status::new(Code::Unknown, "unimplented".to_string()))
+        }
 }
 
 #[tokio::main]

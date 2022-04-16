@@ -1,6 +1,8 @@
 import { loadPackageDefinition, credentials, Metadata } from "@grpc/grpc-js"
+import fs from "fs"
 import { loadSync } from "@grpc/proto-loader";
 import path from "path";
+import split from "split"
 
 const PROTO_PATH = path.join(__dirname, '../proto/api.proto'),
 	SERVER_URL = "192.168.0.164:50051"
@@ -56,5 +58,28 @@ const putEntry = () => {
 
 }
 
-putEntry()
-getEntry("e_304402205cb2bf1b2619f84bf9e88f1b288ad47b982a569d6921d0f62d2548062b6fedb902207043d35fe41b6b272b12379ba04db1b2c68731b36f3f038182e4c6d8aad4850d")
+const uploadFile = () => {
+	let call = client.Upload((err: any, res: any) => {
+		console.log(err, res)
+	})
+
+	call.write({ metadata: { name: "testname", type: "testtype" } })
+
+	const input = fs
+		.createReadStream(path.join(__dirname, "../package-lock.json"));
+	// .createReadStream(path.join(__dirname, "../test.txt"));
+
+	input.pipe(split())
+		// input
+		.on("data", (chunk) => {
+			call.write({ file: { content: Buffer.from(chunk, "utf-8") } })
+			// call.write({ file: { content: chunk } })
+		})
+		.on("end", () =>
+			call.end()
+		)
+}
+
+uploadFile()
+// putEntry()
+// getEntry("e_304402205cb2bf1b2619f84bf9e88f1b288ad47b982a569d6921d0f62d2548062b6fedb902207043d35fe41b6b272b12379ba04db1b2c68731b36f3f038182e4c6d8aad4850d")
