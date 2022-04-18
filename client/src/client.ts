@@ -59,15 +59,27 @@ const putEntry = () => {
 }
 
 const uploadFile = () => {
-	let call = client.Upload((err: any, res: any) => {
+	let call = client.Upload(meta, (err: any, res: any) => {
 		console.log(err, res)
 	})
 
-	call.write({ metadata: { name: "testname", type: "testtype" } })
+	call.write({
+		metadata: {
+			signature: "304402205cb2bf1b2619f84bf9e88f1b288ad47b982a569d6921d0f62d2548062b6fedb902207043d35fe41b6b272b12379ba04db1b2c68731b36f3f038182e4c6d8aad4850d",
+			entry: {
+				owner: "owner",
+				public: true,
+				read_users: [
+					"User"
+				],
+				name: "Hello"
+			}
+		},
+	})
 
 	const input = fs
-		.createReadStream(path.join(__dirname, "../package-lock.json"));
-	// .createReadStream(path.join(__dirname, "../test.txt"));
+		// .createReadStream(path.join(__dirname, "../package-lock.json"));
+		.createReadStream(path.join(__dirname, "../test.txt"));
 
 	input.pipe(split())
 		// input

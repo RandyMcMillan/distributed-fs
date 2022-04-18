@@ -174,20 +174,64 @@ impl Api for MyApi {
                 &self, 
                 request:  Request<tonic::Streaming<FileUploadRequest>>
         ) -> Result<Response<FileUploadResponse>, Status> {
+		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
                 let mut stream = request.into_inner();
 
+                let mut v: Vec<u8> = Vec::new();
                 while let Some(upload) = stream.next().await {
                         let upload = upload.unwrap();
 
                         match upload.upload_request.unwrap() {
                                 UploadRequest::Metadata(metadata) => {
-                                        println!("{:?}", metadata)
+					let signature: String = metadata.signature.clone();
+					let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
+						public_key, 						
+						signature: signature.clone(),
+						entry: metadata.entry.unwrap(),
+					});
+
+					
+					self.mpsc_sender.send(dht_request).await;
+					match self.broadcast_receiver.lock().await.recv().await {
+						Ok(dht_response) => match dht_response {
+							DhtResponseType::PutRecord(dht_put_response) => {
+								if let Some((code, message)) = dht_put_response.error {
+									return Err(Status::new(code, message));
+								}
+
+								// return Ok(Response::new(FileUploadResponse {
+								// 	key: signature.clone()
+								// }));
+							}
+							_ => {
+								println!("unknown error");
+								return Ok(Response::new(FileUploadResponse {
+									key: signature.clone()
+								}));
+							}
+						}
+						Err(error) => {
+							eprintln!("{}", error);
+							return Ok(Response::new(FileUploadResponse {
+								key: signature
+							}));
+						}
+					};
                                 }
                                 UploadRequest::File(file) => {
-                                        println!("{:?}", str::from_utf8(&file.content).unwrap())
+                                        v.extend_from_slice(&file.content); 
+                                        v.extend_from_slice(&[10u8]); 
                                 }
                         };
                 }
+                v.pop();
+
+                let s = match str::from_utf8(&v) {
+                        Ok(v) => v,
+                        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+                };
+                
+                println!("result: {}", s);
 
                 Err(Status::new(Code::Unknown, "unimplented".to_string()))
         }

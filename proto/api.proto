@@ -44,12 +44,12 @@ message MetaData {
 
 
 message FileUploadResponse {
-  string name = 1;
+  string key = 1;
 }
 
 message FileUploadRequest {
   oneof upload_request {
-    MetaData metadata = 1;
+    PutRequest metadata = 1;
     File file = 2;
   }
 }
