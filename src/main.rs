@@ -1,4 +1,6 @@
 use libp2p::kad::record::store::MemoryStore;
+use std::fs;
+use std::path::Path;
 use libp2p::kad::{Kademlia, record::Key};
 use libp2p::{
     development_transport, 
@@ -36,6 +38,7 @@ mod dht;
 
 use behaviour::MyBehaviour;
 use dht::Dht;
+use handler::{MyApi, DhtResponseType, DhtGetRecordResponse, DhtRequestType, DhtPutRecordResponse};
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -52,191 +55,6 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
 	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
-
-#[derive(Debug)]
-pub struct DhtGetRecordRequest {
-	pub location: String
-}
-
-#[derive(Debug)]
-pub struct DhtPutRecordRequest {
-        pub public_key: PublicKey,
-	pub entry: Entry,
-	pub signature: String,
-}
-
-#[derive(Debug)]
-pub enum DhtRequestType {
-	GetRecord(DhtGetRecordRequest),
-	PutRecord(DhtPutRecordRequest),
-}
-
-#[derive(Debug, Clone)]
-pub struct DhtGetRecordResponse {
-	pub entry: Option<Entry>,
-	pub error: Option<String>
-}
-
-impl DhtGetRecordResponse {
-        fn default() -> Result<Response<GetResponse>, Status> {
-                Ok(Response::new(GetResponse {
-                        entry: None
-                }))
-        }
-
-	fn not_found() -> Result<Response<GetResponse>, Status>  {
-		Err(Status::new(Code::NotFound, "Entry not found"))
-	}
-}
-
-#[derive(Debug, Clone)]
-pub struct DhtPutRecordResponse {
-	pub signature: Option<String>,
-	pub error: Option<(Code, String)>
-}
-
-#[derive(Debug, Clone)]
-pub enum DhtResponseType {
-	GetRecord(DhtGetRecordResponse),
-	PutRecord(DhtPutRecordResponse),
-}
-
-pub struct MyApi {
-	pub mpsc_sender: mpsc::Sender<DhtRequestType>,
-	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>
-}
-
-#[tonic::async_trait]
-impl Api for MyApi {
-	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-		let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
-			location: request.get_ref().location.to_owned()
-		});
-
-		self.mpsc_sender.send(dht_request).await;
-		match self.broadcast_receiver.lock().await.recv().await {
-			Ok(dht_response) => match dht_response {
-                                DhtResponseType::GetRecord(dht_get_response) => {
-                                        if let Some(error) = dht_get_response.error {
-						return DhtGetRecordResponse::not_found();
-                                        }
-
-                                        Ok(Response::new(GetResponse {
-                                                entry: dht_get_response.entry
-                                        }))
-                                }
-                                _ => DhtGetRecordResponse::default()
-                        }
-			Err(error) => {
-				eprintln!("Error {}", error);
-                                DhtGetRecordResponse::default()
-			}
-		}
-	}
-
-	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
-		let signature: String = request.get_ref().signature.clone();
-		let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-			public_key: PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap(),
-			signature: signature.clone(),
-			entry: request.into_inner().entry.unwrap(),
-		});
-
-		self.mpsc_sender.send(dht_request).await;
-		match self.broadcast_receiver.lock().await.recv().await {
-                        Ok(dht_response) => match dht_response {
-                                DhtResponseType::PutRecord(dht_put_response) => {
-                                        if let Some((code, message)) = dht_put_response.error {
-						return Err(Status::new(code, message));
-                                        }
-
-					Ok(Response::new(PutResponse {
-						key: signature.clone()
-					}))
-                                }
-                                _ => {
-					println!("unknown error");
-					Ok(Response::new(PutResponse {
-						key: signature.clone()
-					}))
-				}
-                        }
-                        Err(error) => {
-				eprintln!("{}", error);
-				Ok(Response::new(PutResponse {
-					key: signature
-				}))
-                        }
-                }
-	}
-
-        async fn upload(
-                &self, 
-                request:  Request<tonic::Streaming<FileUploadRequest>>
-        ) -> Result<Response<FileUploadResponse>, Status> {
-		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
-                let mut stream = request.into_inner();
-
-                let mut v: Vec<u8> = Vec::new();
-                while let Some(upload) = stream.next().await {
-                        let upload = upload.unwrap();
-
-                        match upload.upload_request.unwrap() {
-                                UploadRequest::Metadata(metadata) => {
-					let signature: String = metadata.signature.clone();
-					let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-						public_key, 						
-						signature: signature.clone(),
-						entry: metadata.entry.unwrap(),
-					});
-
-					
-					self.mpsc_sender.send(dht_request).await;
-					match self.broadcast_receiver.lock().await.recv().await {
-						Ok(dht_response) => match dht_response {
-							DhtResponseType::PutRecord(dht_put_response) => {
-								if let Some((code, message)) = dht_put_response.error {
-									return Err(Status::new(code, message));
-								}
-
-								// return Ok(Response::new(FileUploadResponse {
-								// 	key: signature.clone()
-								// }));
-							}
-							_ => {
-								println!("unknown error");
-								return Ok(Response::new(FileUploadResponse {
-									key: signature.clone()
-								}));
-							}
-						}
-						Err(error) => {
-							eprintln!("{}", error);
-							return Ok(Response::new(FileUploadResponse {
-								key: signature
-							}));
-						}
-					};
-                                }
-                                UploadRequest::File(file) => {
-                                        v.extend_from_slice(&file.content); 
-                                        v.extend_from_slice(&[10u8]); 
-                                }
-                        };
-                }
-                v.pop();
-
-                let s = match str::from_utf8(&v) {
-                        Ok(v) => v,
-                        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-                };
-                
-                println!("result: {}", s);
-
-                Err(Status::new(Code::Unknown, "unimplented".to_string()))
-        }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 	let args: Vec<String> = env::args().collect();

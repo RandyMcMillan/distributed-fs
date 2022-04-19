@@ -78,14 +78,14 @@ const uploadFile = () => {
 	})
 
 	const input = fs
-		// .createReadStream(path.join(__dirname, "../package-lock.json"));
-		.createReadStream(path.join(__dirname, "../test.txt"));
+		// .createReadStream(path.join(__dirname, "../pfp.png"));
+		.createReadStream(path.join(__dirname, "../img.png"), { highWaterMark: 2048 });
 
-	input.pipe(split())
-		// input
+	// input.pipe(split())
+	input
 		.on("data", (chunk) => {
-			call.write({ file: { content: Buffer.from(chunk, "utf-8") } })
-			// call.write({ file: { content: chunk } })
+			// call.write({ file: { content: Buffer.from(chunk, "utf-8") } })
+			call.write({ file: { content: chunk } })
 		})
 		.on("end", () =>
 			call.end()
