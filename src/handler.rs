@@ -1,10 +1,5 @@
 use libp2p::kad::record::Key;
-use std::str;
-use tokio::net::TcpStream; 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use serde::{Deserialize, Serialize};
-use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
-use secp256k1::hashes::sha256;
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::str::FromStr;
 use futures::stream::StreamExt;
 use std::fs;
@@ -12,10 +7,15 @@ use std::path::Path;
 use tokio::sync::{mpsc, broadcast};
 use tokio::sync::Mutex;
 use std::sync::Arc;
+// use rand::{RngCore, rngs::OsRng};
+// use chacha20poly1305::{
+//     aead::{stream, Aead, NewAead},
+//     XChaCha20Poly1305,
+// };
 
-use tonic::{transport::Server, Request, Response, Status, Code};
-use crate::api::api_server::{Api, ApiServer};
-use crate::api::{GetRequest, GetResponse, PutResponse, PutRequest, Entry, FileUploadRequest, FileUploadResponse, MetaData, File, file_upload_request::UploadRequest};
+use tonic::{Request, Response, Status, Code};
+use crate::api::api_server::Api;
+use crate::api::{GetRequest, GetResponse, PutResponse, PutRequest, ApiEntry, FileUploadRequest, FileUploadResponse, file_upload_request::UploadRequest};
 
 // use crate::entry::Entry;
 // use crate::Dht;
@@ -189,7 +189,7 @@ pub struct DhtGetRecordRequest {
 #[derive(Debug)]
 pub struct DhtPutRecordRequest {
         pub public_key: PublicKey,
-	pub entry: Entry,
+	pub entry: ApiEntry,
 	pub signature: String,
 }
 
@@ -201,7 +201,7 @@ pub enum DhtRequestType {
 
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordResponse {
-	pub entry: Option<Entry>,
+	pub entry: Option<ApiEntry>,
 	pub error: Option<String>
 }
 
@@ -355,16 +355,43 @@ impl Api for MyApi {
                 }
                 // v.pop();
 
-		let path: &Path =  Path::new("./out");
+		let path: &Path = Path::new("./out");
 		match fs::write(path, v) {
 			Ok(_) => {
 				Ok(Response::new(FileUploadResponse {
-					key: signature.unwrap().clone()
+					key: format!("e_{}", signature.unwrap())
 				}))
 			}
 			Err(error) => {
 				Err(Status::new(Code::Unknown, error.to_string()))
 			}
 		}
+
+		// let mut file_nonce = [0u8; 24];
+		// OsRng.fill_bytes(&mut file_nonce);
+		// let key = signature.as_ref().unwrap().as_bytes(); 
+
+		// encrypt_small_file("./out", "./encrypted", key, &file_nonce).unwrap();
+
+		// Ok(Response::new(FileUploadResponse {
+		// 	key: signature.unwrap().clone()
+		// }))
         }
 }
+
+// fn encrypt_small_file(
+// 	filepath: &str,
+// 	dist: &str,
+// 	key: &[u8],
+// 	nonce: &[u8; 24],
+// ) -> Result<(), String> {
+// 	let cipher = XChaCha20Poly1305::new(key.into());
+
+// 	let file_data = fs::read(filepath).unwrap();
+
+// 	let encrypted_file = cipher.encrypt(nonce.into(), file_data.as_ref()).unwrap();
+
+// 	fs::write(&dist, encrypted_file).unwrap();
+
+// 	Ok(())
+// }

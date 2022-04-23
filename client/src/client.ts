@@ -61,6 +61,8 @@ const putEntry = () => {
 const uploadFile = () => {
 	let call = client.Upload(meta, (err: any, res: any) => {
 		console.log(err, res)
+
+		res?.key && getEntry(res.key)
 	})
 
 	call.write({
@@ -72,6 +74,13 @@ const uploadFile = () => {
 				read_users: [
 					"User"
 				],
+				children: [
+					{
+						name: "file.txt",
+						type: "file",
+						entry_location: null
+					}
+				],
 				name: "Hello"
 			}
 		},
@@ -79,7 +88,7 @@ const uploadFile = () => {
 
 	const input = fs
 		// .createReadStream(path.join(__dirname, "../pfp.png"));
-		.createReadStream(path.join(__dirname, "../img.png"), { highWaterMark: 2048 });
+		.createReadStream(path.join(__dirname, "../../Cargo.lock"), { highWaterMark: 2048 });
 
 	// input.pipe(split())
 	input

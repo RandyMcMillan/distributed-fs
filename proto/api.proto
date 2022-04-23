@@ -10,14 +10,21 @@ service Api {
 
 message PutRequest {
 	string signature = 1;
-	Entry entry = 2;
+	ApiEntry entry = 2;
 }
 
-message Entry {
+message ApiChildren {
+	string name = 1;
+	string type = 2;
+	optional string entry_location = 3;
+}
+
+message ApiEntry {
 	string owner = 1;
 	bool public = 2;
 	repeated string read_users = 3;
 	string name = 4;
+	repeated ApiChildren children = 5;
 }
 
 message PutResponse {
@@ -30,26 +37,26 @@ message GetRequest {
 }
 
 message GetResponse {
-	optional Entry entry = 1;
+	optional ApiEntry entry = 1;
 }
 
 message File {
-  bytes content = 1;
+	bytes content = 1;
 }
 
 message MetaData {
-  string name = 1;
-  string type = 2;
+	string name = 1;
+	string type = 2;
 }
 
 
 message FileUploadResponse {
-  string key = 1;
+	string key = 1;
 }
 
 message FileUploadRequest {
-  oneof upload_request {
-    PutRequest metadata = 1;
-    File file = 2;
-  }
+	oneof upload_request {
+		PutRequest metadata = 1;
+		File file = 2;
+	}
 }
