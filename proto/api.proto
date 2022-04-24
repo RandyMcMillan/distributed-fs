@@ -6,6 +6,7 @@ service Api {
 	rpc Get (GetRequest) returns (GetResponse);
 	rpc Put (PutRequest) returns (PutResponse);
 	rpc Upload(stream FileUploadRequest) returns(FileUploadResponse);
+	rpc Download(FileDownloadRequest) returns(stream FileDownloadResponse);
 }
 
 message PutRequest {
@@ -32,7 +33,6 @@ message PutResponse {
 }
 
 message GetRequest {
-	string public_key = 1;
 	string location = 2;
 }
 
@@ -42,11 +42,6 @@ message GetResponse {
 
 message File {
 	bytes content = 1;
-}
-
-message MetaData {
-	string name = 1;
-	string type = 2;
 }
 
 
@@ -59,4 +54,18 @@ message FileUploadRequest {
 		PutRequest metadata = 1;
 		File file = 2;
 	}
+}
+
+message FileDownloadResponse {
+	oneof download_response {
+		GetRequest metadata = 1;
+		File file = 2;
+		string test = 3;
+	}
+}
+
+message FileDownloadRequest {
+	string location = 1;
+	string name = 2;	
+	bool download = 3;
 }

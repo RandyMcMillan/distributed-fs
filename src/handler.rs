@@ -5,8 +5,11 @@ use futures::stream::StreamExt;
 use std::fs;
 use std::path::Path;
 use tokio::sync::{mpsc, broadcast};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::io::{self, BufRead, BufReader};
+
 // use rand::{RngCore, rngs::OsRng};
 // use chacha20poly1305::{
 //     aead::{stream, Aead, NewAead},
@@ -15,7 +18,20 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status, Code};
 use crate::api::api_server::Api;
-use crate::api::{GetRequest, GetResponse, PutResponse, PutRequest, ApiEntry, FileUploadRequest, FileUploadResponse, file_upload_request::UploadRequest};
+use crate::api::{
+	GetRequest, 
+	GetResponse, 
+	PutResponse, 
+	PutRequest,
+	ApiEntry, 
+	FileUploadRequest, 
+	FileUploadResponse, 
+	file_upload_request::UploadRequest,
+	file_download_response::DownloadResponse,
+	FileDownloadRequest,
+	FileDownloadResponse,
+	File
+};
 
 // use crate::entry::Entry;
 // use crate::Dht;
@@ -377,6 +393,47 @@ impl Api for MyApi {
 		// 	key: signature.unwrap().clone()
 		// }))
         }
+
+	type DownloadStream = ReceiverStream<Result<FileDownloadResponse, Status>>;
+
+	async fn download(
+		&self,
+		request: Request<FileDownloadRequest>
+	) -> Result<Response<Self::DownloadStream>, Status> {
+		println!("download = {:?}", request);
+		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
+
+		let (tx, rx) = mpsc::channel(4);
+
+		tokio::spawn(async move {
+			const CAP: usize = 1024 * 128;
+			let file = fs::File::open("./out").unwrap();
+			let mut reader = BufReader::with_capacity(CAP, file);
+
+			tx.send(Ok(FileDownloadResponse {
+				download_response: Some(DownloadResponse::Test(public_key.to_string()))
+			})).await.unwrap();
+
+			loop {
+				let buffer = reader.fill_buf().unwrap();
+				let length = buffer.len();
+
+				if length == 0 {
+					break
+				} else {
+					tx.send(Ok(FileDownloadResponse {
+						download_response: Some(DownloadResponse::File(File {
+							content: buffer.to_vec()
+						}))
+					})).await.unwrap();
+				}
+
+				reader.consume(length);
+			};
+		});
+
+		Ok(Response::new(ReceiverStream::new(rx)))
+	}
 }
 
 // fn encrypt_small_file(

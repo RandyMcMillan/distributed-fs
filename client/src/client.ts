@@ -88,7 +88,7 @@ const uploadFile = () => {
 
 	const input = fs
 		// .createReadStream(path.join(__dirname, "../pfp.png"));
-		.createReadStream(path.join(__dirname, "../../Cargo.lock"), { highWaterMark: 2048 });
+		.createReadStream(path.join(__dirname, "../img.png"), { highWaterMark: 1024 * 128 });
 
 	// input.pipe(split())
 	input
@@ -101,6 +101,29 @@ const uploadFile = () => {
 		)
 }
 
-uploadFile()
+const downloadFile = () => {
+	const call = client.Download(
+		{
+			location: "e_304402205cb2bf1b2619f84bf9e88f1b288ad47b982a569d6921d0f62d2548062b6fedb902207043d35fe41b6b272b12379ba04db1b2c68731b36f3f038182e4c6d8aad4850d",
+			name: "Hello"
+		},
+		meta
+	)
+
+	if (fs.existsSync("./download")) fs.rmSync("./download")
+	call.on("data", (res: any) => {
+		console.log("DATA: ", res[res.download_response], res)
+		if (res.download_response === "file") {
+			fs.appendFileSync("./download", res[res.download_response].content)
+		}
+	})
+
+	call.on("end", () => {
+		console.log("end")
+	})
+}
+
+// uploadFile()
+downloadFile()
 // putEntry()
 // getEntry("e_304402205cb2bf1b2619f84bf9e88f1b288ad47b982a569d6921d0f62d2548062b6fedb902207043d35fe41b6b272b12379ba04db1b2c68731b36f3f038182e4c6d8aad4850d")
