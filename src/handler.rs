@@ -1,5 +1,7 @@
 use libp2p::kad::record::Key;
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
+use secp256k1::hashes::sha256;
+use secp256k1::ecdsa::Signature;
 use std::str::FromStr;
 use futures::stream::StreamExt;
 use std::fs;
@@ -250,6 +252,7 @@ pub struct MyApi {
 	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>
 }
 
+
 #[tonic::async_trait]
 impl Api for MyApi {
 	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
@@ -279,39 +282,40 @@ impl Api for MyApi {
 	}
 
 	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
-		let signature: String = request.get_ref().signature.clone();
-		let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-			public_key: PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap(),
-			signature: signature.clone(),
-			entry: request.into_inner().entry.unwrap(),
-		});
+		// let signature: String = request.get_ref().signature.clone();
+		// let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
+		// 	public_key: PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap(),
+		// 	signature: signature.clone(),
+		// 	entry: request.into_inner().entry.unwrap(),
+		// });
 
-		self.mpsc_sender.send(dht_request).await;
-		match self.broadcast_receiver.lock().await.recv().await {
-                        Ok(dht_response) => match dht_response {
-                                DhtResponseType::PutRecord(dht_put_response) => {
-                                        if let Some((code, message)) = dht_put_response.error {
-						return Err(Status::new(code, message));
-                                        }
+		// self.mpsc_sender.send(dht_request).await;
+		// match self.broadcast_receiver.lock().await.recv().await {
+                //         Ok(dht_response) => match dht_response {
+                //                 DhtResponseType::PutRecord(dht_put_response) => {
+                //                         if let Some((code, message)) = dht_put_response.error {
+		// 				return Err(Status::new(code, message));
+                //                         }
 
-					Ok(Response::new(PutResponse {
-						key: signature.clone()
-					}))
-                                }
-                                _ => {
-					println!("unknown error");
-					Ok(Response::new(PutResponse {
-						key: signature.clone()
-					}))
-				}
-                        }
-                        Err(error) => {
-				eprintln!("{}", error);
-				Ok(Response::new(PutResponse {
-					key: signature
-				}))
-                        }
-                }
+		// 			Ok(Response::new(PutResponse {
+		// 				key: signature.clone()
+		// 			}))
+                //                 }
+                //                 _ => {
+		// 			println!("unknown error");
+		// 			Ok(Response::new(PutResponse {
+		// 				key: signature.clone()
+		// 			}))
+		// 		}
+                //         }
+                //         Err(error) => {
+		// 		eprintln!("{}", error);
+		// 		Ok(Response::new(PutResponse {
+		// 			key: signature
+		// 		}))
+                //         }
+                // }
+		Err(Status::new(Code::Unknown, "_".to_owned()))
 	}
 
         async fn upload(
@@ -335,7 +339,7 @@ impl Api for MyApi {
 						signature: signature.as_ref().unwrap().clone(),
 						entry: metadata.entry.unwrap(),
 					});
-					
+
 					self.mpsc_sender.send(dht_request).await;
 					match self.broadcast_receiver.lock().await.recv().await {
 						Ok(dht_response) => match dht_response {
@@ -352,6 +356,7 @@ impl Api for MyApi {
 								println!("unknown error");
 								return Ok(Response::new(FileUploadResponse {
 									key: signature.unwrap().clone()
+									// key: "test".to_string()
 								}));
 							}
 						}
@@ -359,17 +364,21 @@ impl Api for MyApi {
 							eprintln!("{}", error);
 							return Ok(Response::new(FileUploadResponse {
 								key: signature.unwrap()
+								// key: "test".to_string()
 							}));
 						}
 					};
+					
                                 }
                                 UploadRequest::File(file) => {
-                                        v.extend_from_slice(&file.content); 
-                                        // v.extend_from_slice(&[10u8]); 
+					if !signature.is_none() {
+						v.extend_from_slice(&file.content); 
+					} else {
+						return Err(Status::new(Code::Unknown, "No metadata received".to_owned()));
+					}
                                 }
                         };
                 }
-                // v.pop();
 
 		let path: &Path = Path::new("./out");
 		match fs::write(path, v) {
@@ -402,6 +411,7 @@ impl Api for MyApi {
 	) -> Result<Response<Self::DownloadStream>, Status> {
 		println!("download = {:?}", request);
 		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
+		let request = request.into_inner();
 
 		let (tx, rx) = mpsc::channel(4);
 
@@ -410,26 +420,28 @@ impl Api for MyApi {
 			let file = fs::File::open("./out").unwrap();
 			let mut reader = BufReader::with_capacity(CAP, file);
 
-			tx.send(Ok(FileDownloadResponse {
-				download_response: Some(DownloadResponse::Test(public_key.to_string()))
-			})).await.unwrap();
+			// tx.send(Ok(FileDownloadResponse {
+			// 	download_response: Some(DownloadResponse::Test(public_key.to_string()))
+			// })).await.unwrap();
 
-			loop {
-				let buffer = reader.fill_buf().unwrap();
-				let length = buffer.len();
+			if request.download {
+				loop {
+					let buffer = reader.fill_buf().unwrap();
+					let length = buffer.len();
 
-				if length == 0 {
-					break
-				} else {
-					tx.send(Ok(FileDownloadResponse {
-						download_response: Some(DownloadResponse::File(File {
-							content: buffer.to_vec()
-						}))
-					})).await.unwrap();
-				}
+					if length == 0 {
+						break
+					} else {
+						tx.send(Ok(FileDownloadResponse {
+							download_response: Some(DownloadResponse::File(File {
+								content: buffer.to_vec()
+							}))
+						})).await.unwrap();
+					}
 
-				reader.consume(length);
-			};
+					reader.consume(length);
+				};
+			}
 		});
 
 		Ok(Response::new(ReceiverStream::new(rx)))

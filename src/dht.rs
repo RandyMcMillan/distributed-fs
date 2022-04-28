@@ -44,6 +44,7 @@ impl Dht {
 			expires: None,
 		};
 
+
 		let behaviour = self.0.behaviour_mut();
 
 		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");

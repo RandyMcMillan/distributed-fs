@@ -12,7 +12,7 @@ use std::error::Error;
 use std::{str, env};
 use std::str::FromStr;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Secp256k1, Message};
+use secp256k1::{Secp256k1, Message, SecretKey};
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
 use tonic::{transport::Server, Code};
@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					public_key
 				}) => {
 					let pub_key = public_key.clone();
-					let key: String = format!("e_{}", signature);
+					let key: String = format!("e_{}", signature.to_string());
 
 					let secp = Secp256k1::new();
 					let sig = Signature::from_str(&signature.clone()).unwrap();
@@ -121,6 +121,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 					match secp.verify_ecdsa(&message, &sig, &pub_key) {
 						Err(error) => {
+							println!("{:?}", error);
 							broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
 								signature: Some(key),
 								error: Some((Code::Unauthenticated, "Invalid signature".to_string()))

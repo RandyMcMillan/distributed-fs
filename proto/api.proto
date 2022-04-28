@@ -12,6 +12,7 @@ service Api {
 message PutRequest {
 	string signature = 1;
 	ApiEntry entry = 2;
+	// bytes content = 3;
 }
 
 message ApiChildren {
@@ -33,7 +34,7 @@ message PutResponse {
 }
 
 message GetRequest {
-	string location = 2;
+	string location = 1;
 }
 
 message GetResponse {
@@ -60,7 +61,6 @@ message FileDownloadResponse {
 	oneof download_response {
 		GetRequest metadata = 1;
 		File file = 2;
-		string test = 3;
 	}
 }
 

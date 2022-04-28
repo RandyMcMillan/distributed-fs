@@ -12,6 +12,7 @@ service Api {
 message PutRequest {
 	string signature = 1;
 	ApiEntry entry = 2;
+	// bytes content = 3;
 }
 
 message ApiChildren {
@@ -33,8 +34,7 @@ message PutResponse {
 }
 
 message GetRequest {
-	string public_key = 1;
-	string location = 2;
+	string location = 1;
 }
 
 message GetResponse {
@@ -43,11 +43,6 @@ message GetResponse {
 
 message File {
 	bytes content = 1;
-}
-
-message MetaData {
-	string name = 1;
-	string type = 2;
 }
 
 
@@ -64,13 +59,13 @@ message FileUploadRequest {
 
 message FileDownloadResponse {
 	oneof download_response {
-		PutRequest metadata = 1;
+		GetRequest metadata = 1;
 		File file = 2;
-		string test = 3;
 	}
 }
 
 message FileDownloadRequest {
 	string location = 1;
-	string name = 2;
+	string name = 2;	
+	bool download = 3;
 }
