@@ -37,7 +37,16 @@ mod dht;
 
 use behaviour::MyBehaviour;
 use dht::Dht;
-use handler::{MyApi, DhtResponseType, DhtGetRecordResponse, DhtRequestType, DhtPutRecordResponse, DhtPutRecordRequest};
+use handler::{
+	MyApi,
+	DhtGetRecordRequest,
+	DhtResponseType, 
+	DhtGetRecordResponse, 
+	DhtRequestType, 
+	DhtPutRecordResponse, 
+	DhtPutRecordRequest
+};
+
 
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
@@ -81,23 +90,44 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		while let Some(data) = mpsc_receiver_stream.next().await {
 			match data {
-				DhtRequestType::GetRecord(dht_get_record) => {
-					let key = handler::get_location_key(dht_get_record.location);
+				DhtRequestType::GetRecord(DhtGetRecordRequest {
+					signature,
+					name,
+					public_key
+				}) => {
+					let key = handler::get_location_key(signature.clone());
+
+					let secp = Secp256k1::new();
+					let sig = Signature::from_str(&signature.clone()[2..]).unwrap();
+					let message = Message::from_hashed_data::<sha256::Hash>(
+						format!("{}/{}", public_key.to_string(), name).as_bytes()
+					);
+
+					match secp.verify_ecdsa(&message, &sig, &public_key) {
+						Err(error) => {
+							println!("{:?}", error);
+							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+								entry: None,
+								error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
+							})).unwrap();
+							continue;
+						}
+						_ => {}
+					}
 
 					match dht_swarm.get(&key).await {
 						Ok(record) => {
 							let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-							println!("GET: {:?}", entry);
 
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-								entry: None,
+								entry: Some(entry),
 								error: None
 							})).unwrap();
                                                 }
 						Err(error) => {
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 								entry: None,
-								error: Some(error.to_string())
+								error: Some((Code::NotFound, error.to_string()))
 							})).unwrap();
 						}
 					};
@@ -113,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					let secp = Secp256k1::new();
 					let sig = Signature::from_str(&signature.clone()).unwrap();
 					let message = Message::from_hashed_data::<sha256::Hash>(
-						format!("{}/{}", pub_key, entry.name).as_bytes()
+						format!("{}/{}", pub_key.to_string(), entry.name).as_bytes()
 					);
 
 					let entry = Entry::new(signature, public_key.to_string(), entry);

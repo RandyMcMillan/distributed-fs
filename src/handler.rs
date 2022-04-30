@@ -12,12 +12,6 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::io::{self, BufRead, BufReader};
 
-// use rand::{RngCore, rngs::OsRng};
-// use chacha20poly1305::{
-//     aead::{stream, Aead, NewAead},
-//     XChaCha20Poly1305,
-// };
-
 use tonic::{Request, Response, Status, Code};
 use crate::api::api_server::Api;
 use crate::api::{
@@ -30,12 +24,11 @@ use crate::api::{
 	FileUploadResponse, 
 	file_upload_request::UploadRequest,
 	file_download_response::DownloadResponse,
-	FileDownloadRequest,
 	FileDownloadResponse,
 	File
 };
 
-// use crate::entry::Entry;
+use crate::entry::Entry;
 // use crate::Dht;
 
 // #[derive(Debug, Deserialize)]
@@ -201,7 +194,9 @@ fn check_user(secret_key: String, public_key: String) -> Result<(String, SecretK
 
 #[derive(Debug)]
 pub struct DhtGetRecordRequest {
-	pub location: String
+	pub signature: String,
+	pub name: String,
+	pub public_key: PublicKey
 }
 
 #[derive(Debug)]
@@ -219,8 +214,8 @@ pub enum DhtRequestType {
 
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordResponse {
-	pub entry: Option<ApiEntry>,
-	pub error: Option<String>
+	pub entry: Option<Entry>,
+	pub error: Option<(Code, String)>
 }
 
 impl DhtGetRecordResponse {
@@ -256,29 +251,30 @@ pub struct MyApi {
 #[tonic::async_trait]
 impl Api for MyApi {
 	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-		let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
-			location: request.get_ref().location.to_owned()
-		});
+		// let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
+		// 	location: request.get_ref().location.to_owned()
+		// });
 
-		self.mpsc_sender.send(dht_request).await;
-		match self.broadcast_receiver.lock().await.recv().await {
-			Ok(dht_response) => match dht_response {
-                                DhtResponseType::GetRecord(dht_get_response) => {
-                                        if let Some(error) = dht_get_response.error {
-						return DhtGetRecordResponse::not_found();
-                                        }
+		// self.mpsc_sender.send(dht_request).await;
+		// match self.broadcast_receiver.lock().await.recv().await {
+		// 	Ok(dht_response) => match dht_response {
+                //                 DhtResponseType::GetRecord(dht_get_response) => {
+                //                         if let Some(error) = dht_get_response.error {
+		// 				return DhtGetRecordResponse::not_found();
+                //                         }
 
-                                        Ok(Response::new(GetResponse {
-                                                entry: dht_get_response.entry
-                                        }))
-                                }
-                                _ => DhtGetRecordResponse::default()
-                        }
-			Err(error) => {
-				eprintln!("Error {}", error);
-                                DhtGetRecordResponse::default()
-			}
-		}
+                //                         Ok(Response::new(GetResponse {
+                //                                 entry: dht_get_response.entry
+                //                         }))
+                //                 }
+                //                 _ => DhtGetRecordResponse::default()
+                //         }
+		// 	Err(error) => {
+		// 		eprintln!("Error {}", error);
+                //                 DhtGetRecordResponse::default()
+		// 	}
+		// }
+		DhtGetRecordResponse::default()
 	}
 
 	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
@@ -380,7 +376,8 @@ impl Api for MyApi {
                         };
                 }
 
-		let path: &Path = Path::new("./out");
+		let location = format!("./cache/{}", signature.as_ref().unwrap().clone());
+		let path: &Path = Path::new(&location);
 		match fs::write(path, v) {
 			Ok(_) => {
 				Ok(Response::new(FileUploadResponse {
@@ -407,42 +404,69 @@ impl Api for MyApi {
 
 	async fn download(
 		&self,
-		request: Request<FileDownloadRequest>
+		request: Request<GetRequest>
 	) -> Result<Response<Self::DownloadStream>, Status> {
-		println!("download = {:?}", request);
 		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
 		let request = request.into_inner();
 
-		let (tx, rx) = mpsc::channel(4);
+		let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
+			signature: request.location.to_owned(),
+			public_key,
+			name: request.name.to_owned()
+		});
+		
+		self.mpsc_sender.send(dht_request).await;
 
-		tokio::spawn(async move {
-			const CAP: usize = 1024 * 128;
-			let file = fs::File::open("./out").unwrap();
-			let mut reader = BufReader::with_capacity(CAP, file);
-
-			// tx.send(Ok(FileDownloadResponse {
-			// 	download_response: Some(DownloadResponse::Test(public_key.to_string()))
-			// })).await.unwrap();
-
-			if request.download {
-				loop {
-					let buffer = reader.fill_buf().unwrap();
-					let length = buffer.len();
-
-					if length == 0 {
-						break
-					} else {
-						tx.send(Ok(FileDownloadResponse {
-							download_response: Some(DownloadResponse::File(File {
-								content: buffer.to_vec()
-							}))
-						})).await.unwrap();
+		match self.broadcast_receiver.lock().await.recv().await {
+			Ok(dht_response) => match dht_response {
+				DhtResponseType::GetRecord(dht_get_response) => {
+					println!("GOT HERE, \n{:?}", dht_get_response);
+					if let Some((code, message)) = dht_get_response.error {
+						return Err(Status::new(code, message));
 					}
 
-					reader.consume(length);
-				};
+					// return Ok(Response::new(FileUploadResponse {
+					// 	key: signature.clone()
+					// }));
+				}
+				_ => {
+					println!("unknown error");
+				}
 			}
-		});
+			Err(error) => {
+				eprintln!("{}", error);
+			}
+		};
+
+
+		let (tx, rx) = mpsc::channel(4);
+
+		if request.download {
+			tokio::spawn(async move {
+				const CAP: usize = 1024 * 128;
+				let file = fs::File::open("./out").unwrap();
+				let mut reader = BufReader::with_capacity(CAP, file);
+
+				if request.download {
+					loop {
+						let buffer = reader.fill_buf().unwrap();
+						let length = buffer.len();
+
+						if length == 0 {
+							break
+						} else {
+							tx.send(Ok(FileDownloadResponse {
+								download_response: Some(DownloadResponse::File(File {
+									content: buffer.to_vec()
+								}))
+							})).await.unwrap();
+						}
+
+						reader.consume(length);
+					};
+				}
+			});
+		}
 
 		Ok(Response::new(ReceiverStream::new(rx)))
 	}
