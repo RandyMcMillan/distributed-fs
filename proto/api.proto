@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package api;
 
-service Api {
+service Service {
 	rpc Get (GetRequest) returns (GetResponse);
 	rpc Put (PutRequest) returns (PutResponse);
 	rpc Upload(stream FileUploadRequest) returns(FileUploadResponse);
@@ -12,7 +12,6 @@ service Api {
 message PutRequest {
 	string signature = 1;
 	ApiEntry entry = 2;
-	// bytes content = 3;
 }
 
 message ApiChildren {
@@ -47,6 +46,10 @@ message File {
 	bytes content = 1;
 }
 
+message UploadFile {
+	bytes content = 1;
+	string cid = 2;
+}
 
 message FileUploadResponse {
 	string key = 1;
@@ -55,7 +58,7 @@ message FileUploadResponse {
 message FileUploadRequest {
 	oneof upload_request {
 		PutRequest metadata = 1;
-		File file = 2;
+		UploadFile file = 2;
 	}
 }
 

@@ -23,21 +23,21 @@ use tokio::sync::Mutex;
 use std::sync::Arc;
 use entry::Entry;
 
-use api::api_server::{Api, ApiServer};
-use api::ApiEntry;
+use service::service_server::{Service, ServiceServer};
+use service::ApiEntry;
 
-mod api {
+mod service {
 	tonic::include_proto!("api");
 }
 
-mod handler;
+mod api;
 mod entry;
 mod behaviour;
 mod dht;
 
 use behaviour::MyBehaviour;
 use dht::Dht;
-use handler::{
+use api::{
 	MyApi,
 	DhtGetRecordRequest,
 	DhtResponseType, 
@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					name,
 					public_key
 				}) => {
-					let key = handler::get_location_key(signature.clone());
+					let key = api::get_location_key(signature.clone());
 
 					let secp = Secp256k1::new();
 					let sig = Signature::from_str(&signature.clone()[2..]).unwrap();
@@ -105,7 +105,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 					match secp.verify_ecdsa(&message, &sig, &public_key) {
 						Err(error) => {
-							println!("{:?}", error);
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 								entry: None,
 								error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
@@ -185,7 +184,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		mpsc_sender,
 		broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver))
 	};
-	let server = Server::builder().add_service(ApiServer::new(say));
+	let server = Server::builder().add_service(ServiceServer::new(say));
 
 	let addr = "192.168.0.164:50051".parse().unwrap();
 	println!("Server listening on {}", addr);

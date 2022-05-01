@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use crate::api::{ApiEntry, ApiChildren};
+use crate::service::{ApiEntry, ApiChildren};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Entry {

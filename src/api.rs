@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::io::{self, BufRead, BufReader};
 
 use tonic::{Request, Response, Status, Code};
-use crate::api::api_server::Api;
-use crate::api::{
+use crate::service::service_server::Service;
+use crate::service::{
 	GetRequest, 
 	GetResponse, 
 	PutResponse, 
@@ -27,139 +27,7 @@ use crate::api::{
 	FileDownloadResponse,
 	File
 };
-
 use crate::entry::Entry;
-// use crate::Dht;
-
-// #[derive(Debug, Deserialize)]
-// struct PutRecordRequest {
-// 	entry: Entry,
-// 	secret_key: String,
-// 	public_key: String,
-// }
-
-// #[derive(Debug, Deserialize)]
-// struct GetRecordQuery {
-// 	location: String,
-// 	secret_key: String,
-// 	public_key: String,
-// }
-
-// #[derive(Debug, Deserialize, Serialize)]
-// struct GetRecordResponse {
-// 	found: bool,
-// 	key: String,
-// 	data: Option<Entry>,
-// 	error: Option<String>
-// }
-
-// pub async fn handle_stream(mut stream: TcpStream, swarm: &mut Dht) -> Result<(), String> {
-// 	let mut buffer = [0; 1024 * 8];
-// 	let bytes_read = match stream.read(&mut buffer).await {
-// 		Ok(b) => b,
-// 		Err(_error) => return Err("Could not read bytes".to_string())
-// 	};
-
-// 	let mut headers = [httparse::EMPTY_HEADER; 64];
-// 	let mut req = httparse::Request::new(&mut headers);
-// 	match req.parse(&buffer) {
-// 		Ok(..) => {},
-// 		Err(_error) => return Err("Failed to parse headers".to_string())
-// 	};
-
-
-// 	let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-// 	let mut parts = request.split("\r\n\r\n");
-// 	match parts.next() {
-// 		Some(_val) => {},
-// 		None => return Err("Expected body".to_string())
-// 	};
-
-// 	let body = match parts.next() {
-// 		Some(val) => val.to_string(),
-// 		None => "".to_string()
-// 	};
-
-// 	if body.len() == 0 {
-// 		return Err("Got body of length 0".to_string())
-// 	}
-
-// 	if req.method.unwrap() == "POST" && req.path.unwrap() == "/put" {
-// 		let put_request: PutRecordRequest = serde_json::from_str(&body).unwrap();
-// 		let mut entry: Entry = put_request.entry;
-
-// 		let (public_key, secret_key) = match check_user(put_request.secret_key, put_request.public_key) {
-// 			Ok(pkey) => pkey,
-// 			Err(error) => return Err(error)
-// 		};
-
-// 		entry.user = public_key;
-// 		let value = serde_json::to_vec(&entry).unwrap();
-
-// 		let secp = Secp256k1::new();
-// 		let message = Message::from_hashed_data::<sha256::Hash>(format!("{}/{}", entry.user, entry.name).as_bytes());
-// 		let sig = secp.sign_ecdsa(&message, &secret_key);
-
-// 		let key: String = format!("e_{}", sig.to_string());
-
-// 		stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key.clone()).as_bytes()).await.unwrap();
-
-// 		match swarm.put(Key::new(&key), value).await {
-// 			Ok(_) => {
-// 				println!("Success");
-// 			},
-// 			Err(err) => {
-// 				eprintln!("{}", err);
-// 				stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: text/html\n\n{}", key).as_bytes()).await.unwrap();
-// 			}
-// 		}
-// 	} else if req.method.unwrap() == "GET" && req.path.unwrap() == "/get" {
-// 		let get_request: GetRecordQuery = serde_json::from_str(&body).unwrap();
-// 		let key = get_location_key(get_request.location.clone());
-
-// 		let (public_key, _) = match check_user(get_request.secret_key, get_request.public_key) {
-// 			Ok(pkey) => pkey,
-// 			Err(error) => return handle_get_error(stream, key, error).await 
-// 		};
-
-// 		match swarm.get(&key).await {
-// 			Ok(record) => {
-// 				let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-
-// 				if entry.has_access(public_key) {
-// 					let res = GetRecordResponse {
-// 						key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
-// 						found: true,
-// 						data: Some(entry),
-// 						error: None
-// 					};
-
-// 					stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
-// 				} else {
-// 					handle_get_error(stream, key.clone(), format!("Access to {:?} not allowed", key)).await;
-// 				}
-// 			},
-// 			Err(_) => {
-// 				handle_get_error(stream, key, "failed to get entry".to_string()).await;
-// 			},
-// 		};
-// 	}
-
-// 	Ok(())
-// }
-
-// async fn handle_get_error(mut stream: TcpStream, key: Key, error_message: String ) -> Result<(), String> {
-// 	let res = GetRecordResponse {
-// 		key: str::from_utf8(&key.to_vec()).unwrap().to_string(),
-// 		found: false,
-// 		data: None,
-// 		error: Some(error_message.clone())
-// 	};
-
-// 	stream.write_all(format!("HTTP/1.1 200 OK\nContent-Type: application/json\n\n{}", serde_json::to_string(&res).unwrap()).as_bytes()).await.unwrap();
-
-// 	Err(error_message)
-// }
 
 pub fn get_location_key(input_location: String) -> Key {
 	let mut key_idx: usize = 0;
@@ -174,23 +42,6 @@ pub fn get_location_key(input_location: String) -> Key {
 
 	Key::new(&parts[key_idx])
 }
-
-fn check_user(secret_key: String, public_key: String) -> Result<(String, SecretKey), String> {
-	let secp = Secp256k1::new();
-	let secret_key_parsed = match SecretKey::from_str(&secret_key) {
-		Ok(skey) => skey,
-		Err(error) => return Err(error.to_string())
-	};
-	let public_key_from_secret = PublicKey::from_secret_key(&secp, &secret_key_parsed);
-
-	if public_key_from_secret.to_string() != public_key {
-		return Err("Invalid keys".to_string())
-	}
-	
-	Ok((public_key_from_secret.to_string(), secret_key_parsed))
-}
-
-
 
 #[derive(Debug)]
 pub struct DhtGetRecordRequest {
@@ -249,7 +100,7 @@ pub struct MyApi {
 
 
 #[tonic::async_trait]
-impl Api for MyApi {
+impl Service for MyApi {
 	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
 		// let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
 		// 	location: request.get_ref().location.to_owned()
@@ -369,6 +220,7 @@ impl Api for MyApi {
                                 UploadRequest::File(file) => {
 					if !signature.is_none() {
 						v.extend_from_slice(&file.content); 
+						println!("{:?}", file.cid);
 					} else {
 						return Err(Status::new(Code::Unknown, "No metadata received".to_owned()));
 					}
@@ -388,16 +240,6 @@ impl Api for MyApi {
 				Err(Status::new(Code::Unknown, error.to_string()))
 			}
 		}
-
-		// let mut file_nonce = [0u8; 24];
-		// OsRng.fill_bytes(&mut file_nonce);
-		// let key = signature.as_ref().unwrap().as_bytes(); 
-
-		// encrypt_small_file("./out", "./encrypted", key, &file_nonce).unwrap();
-
-		// Ok(Response::new(FileUploadResponse {
-		// 	key: signature.unwrap().clone()
-		// }))
         }
 
 	type DownloadStream = ReceiverStream<Result<FileDownloadResponse, Status>>;
@@ -408,6 +250,7 @@ impl Api for MyApi {
 	) -> Result<Response<Self::DownloadStream>, Status> {
 		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
 		let request = request.into_inner();
+		let (tx, rx) = mpsc::channel(4);
 
 		let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
 			signature: request.location.to_owned(),
@@ -425,12 +268,44 @@ impl Api for MyApi {
 						return Err(Status::new(code, message));
 					}
 
-					// return Ok(Response::new(FileUploadResponse {
-					// 	key: signature.clone()
-					// }));
+					let entry = dht_get_response.entry.unwrap();
+
+					if request.download {
+						tokio::spawn(async move {
+							const CAP: usize = 1024 * 128;
+							let location = format!("./cache/{}", entry.signature);
+
+							if Path::new(&location).exists() {
+								let file = fs::File::open(&location).unwrap();
+
+								let mut reader = BufReader::with_capacity(CAP, file);
+
+								if request.download {
+									loop {
+										let buffer = reader.fill_buf().unwrap();
+										let length = buffer.len();
+
+										if length == 0 {
+											break
+										} else {
+											tx.send(Ok(FileDownloadResponse {
+												download_response: Some(DownloadResponse::File(File {
+													content: buffer.to_vec()
+												}))
+											})).await.unwrap();
+										}
+
+										reader.consume(length);
+									};
+								}
+							} else {
+								eprintln!("File does not exists");
+							}
+						});
+					}
 				}
 				_ => {
-					println!("unknown error");
+					eprintln!("unknown error");
 				}
 			}
 			Err(error) => {
@@ -438,53 +313,6 @@ impl Api for MyApi {
 			}
 		};
 
-
-		let (tx, rx) = mpsc::channel(4);
-
-		if request.download {
-			tokio::spawn(async move {
-				const CAP: usize = 1024 * 128;
-				let file = fs::File::open("./out").unwrap();
-				let mut reader = BufReader::with_capacity(CAP, file);
-
-				if request.download {
-					loop {
-						let buffer = reader.fill_buf().unwrap();
-						let length = buffer.len();
-
-						if length == 0 {
-							break
-						} else {
-							tx.send(Ok(FileDownloadResponse {
-								download_response: Some(DownloadResponse::File(File {
-									content: buffer.to_vec()
-								}))
-							})).await.unwrap();
-						}
-
-						reader.consume(length);
-					};
-				}
-			});
-		}
-
 		Ok(Response::new(ReceiverStream::new(rx)))
 	}
 }
-
-// fn encrypt_small_file(
-// 	filepath: &str,
-// 	dist: &str,
-// 	key: &[u8],
-// 	nonce: &[u8; 24],
-// ) -> Result<(), String> {
-// 	let cipher = XChaCha20Poly1305::new(key.into());
-
-// 	let file_data = fs::read(filepath).unwrap();
-
-// 	let encrypted_file = cipher.encrypt(nonce.into(), file_data.as_ref()).unwrap();
-
-// 	fs::write(&dist, encrypted_file).unwrap();
-
-// 	Ok(())
-// }
