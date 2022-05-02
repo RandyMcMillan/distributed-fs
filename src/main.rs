@@ -95,10 +95,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					name,
 					public_key
 				}) => {
-					let key = api::get_location_key(signature.clone());
+					let (key, location, signature) = api::get_location_key(signature.clone());
 
 					let secp = Secp256k1::new();
-					let sig = Signature::from_str(&signature.clone()[2..]).unwrap();
+					let sig = Signature::from_str(&signature.clone()).unwrap();
 					let message = Message::from_hashed_data::<sha256::Hash>(
 						format!("{}/{}", public_key.to_string(), name).as_bytes()
 					);
@@ -107,7 +107,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 						Err(error) => {
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 								entry: None,
-								error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
+								error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
+								location: None
 							})).unwrap();
 							continue;
 						}
@@ -120,13 +121,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 								entry: Some(entry),
-								error: None
+								error: None,
+								location: Some(location)
 							})).unwrap();
                                                 }
 						Err(error) => {
 							broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 								entry: None,
-								error: Some((Code::NotFound, error.to_string()))
+								error: Some((Code::NotFound, error.to_string())),
+								location: None
 							})).unwrap();
 						}
 					};

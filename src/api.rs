@@ -11,6 +11,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::io::{self, BufRead, BufReader};
+use std::collections::HashMap;
 
 use tonic::{Request, Response, Status, Code};
 use crate::service::service_server::Service;
@@ -29,7 +30,7 @@ use crate::service::{
 };
 use crate::entry::Entry;
 
-pub fn get_location_key(input_location: String) -> Key {
+pub fn get_location_key(input_location: String) -> (Key, String, String) {
 	let mut key_idx: usize = 0;
 	let parts: Vec<String> = input_location.split("/").map(|s| s.to_string()).collect();
 
@@ -40,7 +41,9 @@ pub fn get_location_key(input_location: String) -> Key {
 		}
 	}
 
-	Key::new(&parts[key_idx])
+	let signature = &parts[key_idx].clone()[2..];
+
+	(Key::new(&parts[key_idx]), parts[(key_idx+1)..].join("/"), signature.to_string())
 }
 
 #[derive(Debug)]
@@ -66,7 +69,8 @@ pub enum DhtRequestType {
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordResponse {
 	pub entry: Option<Entry>,
-	pub error: Option<(Code, String)>
+	pub error: Option<(Code, String)>,
+	pub location: Option<String>
 }
 
 impl DhtGetRecordResponse {
@@ -174,7 +178,7 @@ impl Service for MyApi {
 
 		let mut signature: Option<String> = None;
 
-                let mut v: Vec<u8> = Vec::new();
+                let mut v: HashMap<String, Vec<u8>> = HashMap::new();
                 while let Some(upload) = stream.next().await {
                         let upload = upload.unwrap();
 
@@ -203,7 +207,6 @@ impl Service for MyApi {
 								println!("unknown error");
 								return Ok(Response::new(FileUploadResponse {
 									key: signature.unwrap().clone()
-									// key: "test".to_string()
 								}));
 							}
 						}
@@ -211,7 +214,6 @@ impl Service for MyApi {
 							eprintln!("{}", error);
 							return Ok(Response::new(FileUploadResponse {
 								key: signature.unwrap()
-								// key: "test".to_string()
 							}));
 						}
 					};
@@ -219,8 +221,7 @@ impl Service for MyApi {
                                 }
                                 UploadRequest::File(file) => {
 					if !signature.is_none() {
-						v.extend_from_slice(&file.content); 
-						println!("{:?}", file.cid);
+						v.entry(file.cid).or_default().extend_from_slice(&file.content)
 					} else {
 						return Err(Status::new(Code::Unknown, "No metadata received".to_owned()));
 					}
@@ -228,18 +229,22 @@ impl Service for MyApi {
                         };
                 }
 
-		let location = format!("./cache/{}", signature.as_ref().unwrap().clone());
-		let path: &Path = Path::new(&location);
-		match fs::write(path, v) {
-			Ok(_) => {
-				Ok(Response::new(FileUploadResponse {
-					key: format!("e_{}", signature.unwrap())
-				}))
-			}
-			Err(error) => {
-				Err(Status::new(Code::Unknown, error.to_string()))
+
+		for (key, val) in v.iter() {
+			let location = format!("./cache/{}", key);
+			let path: &Path = Path::new(&location);
+
+			match fs::write(path, val) {
+				Err(error) => {
+					return Err(Status::new(Code::Unknown, error.to_string()))
+				},
+				_ => {}
 			}
 		}
+
+	        Ok(Response::new(FileUploadResponse {
+			key: signature.unwrap()
+		}))
         }
 
 	type DownloadStream = ReceiverStream<Result<FileDownloadResponse, Status>>;
@@ -263,12 +268,12 @@ impl Service for MyApi {
 		match self.broadcast_receiver.lock().await.recv().await {
 			Ok(dht_response) => match dht_response {
 				DhtResponseType::GetRecord(dht_get_response) => {
-					println!("GOT HERE, \n{:?}", dht_get_response);
 					if let Some((code, message)) = dht_get_response.error {
 						return Err(Status::new(code, message));
 					}
 
 					let entry = dht_get_response.entry.unwrap();
+					println!("Location: {}", dht_get_response.location.unwrap());
 
 					if request.download {
 						tokio::spawn(async move {
