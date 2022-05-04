@@ -11,7 +11,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::io::{self, BufRead, BufReader};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tonic::{Request, Response, Status, Code};
 use crate::service::service_server::Service;
@@ -28,23 +28,7 @@ use crate::service::{
 	FileDownloadResponse,
 	File
 };
-use crate::entry::Entry;
-
-pub fn get_location_key(input_location: String) -> (Key, String, String) {
-	let mut key_idx: usize = 0;
-	let parts: Vec<String> = input_location.split("/").map(|s| s.to_string()).collect();
-
-	for (idx, part) in parts.iter().rev().enumerate() {
-		if part.starts_with("e_") {
-			key_idx = parts.len() - idx - 1;
-			break
-		}
-	}
-
-	let signature = &parts[key_idx].clone()[2..];
-
-	(Key::new(&parts[key_idx]), parts[(key_idx+1)..].join("/"), signature.to_string())
-}
+use crate::entry::{Entry, EntryMetaData, Children};
 
 #[derive(Debug)]
 pub struct DhtGetRecordRequest {
@@ -273,11 +257,14 @@ impl Service for MyApi {
 					}
 
 					let entry = dht_get_response.entry.unwrap();
-					println!("Location: {}", dht_get_response.location.unwrap());
 
 					if request.download {
 						tokio::spawn(async move {
 							const CAP: usize = 1024 * 128;
+
+							let download_children = resolve_cid(dht_get_response.location.unwrap(), entry.metadata.children);
+							println!("{:?}", download_children);
+
 							let location = format!("./cache/{}", entry.signature);
 
 							if Path::new(&location).exists() {
@@ -320,4 +307,60 @@ impl Service for MyApi {
 
 		Ok(Response::new(ReceiverStream::new(rx)))
 	}
+}
+
+pub fn get_location_key(input_location: String) -> Result<(Key, String, String), String> {
+	let mut key_idx: usize = 0;
+	let mut found = false;
+
+	let input_location = {
+		if input_location.ends_with("/") {
+			input_location[..input_location.len() - 1].to_string()
+		} else {
+			input_location
+		}
+	};
+
+	let parts: Vec<String> = input_location.split("/").map(|s| s.to_string()).collect();
+
+	for (idx, part) in parts.iter().rev().enumerate() {
+		if part.starts_with("e_") {
+			key_idx = parts.len() - idx - 1;
+			found = true;
+			break
+		}
+	}
+
+	if !found {
+		return Err("No signature key found".to_string());
+	}
+
+	let signature = &parts[key_idx].clone()[2..];
+
+	let location = {
+		if key_idx == parts.len() - 1 {
+			"/".to_owned()
+		} else {
+			parts[(key_idx+1)..].join("/")
+		}
+	};
+	Ok((Key::new(&parts[key_idx]), location, signature.to_string()))
+}
+
+pub fn resolve_cid(location: String, metadata: Vec<Children>) -> Result<Vec<Children>, String> {
+	let mut cids = Vec::<String>::new();
+
+	if location == "/".to_string() {
+		// for child in metadata.children.iter() {
+		// 	if let Some(cid) =  child.cid.as_ref() {
+		// 		cids.push(cid.to_string());
+		// 	}
+		// }
+		return Ok(metadata.into_iter().filter(|child| child.r#type == "file".to_string()).collect())
+
+		// return Ok(cids);
+	}
+
+	// Ok(cids)
+	return Ok(metadata)
 }

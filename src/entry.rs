@@ -38,7 +38,7 @@ impl EntryMetaData {
 			children: children.iter().map(|child| Children {
 				name: child.name.clone(),
 				r#type: child.r#type.clone(),
-				entry: child.entry_location.clone()
+				cid: child.cid.clone()
 			}).collect()
 		}
 	}
@@ -48,11 +48,5 @@ impl EntryMetaData {
 pub struct Children {
 	pub name: String,
 	pub r#type: String,
-	pub entry: Option<String>  
+	pub cid: Option<String>
 }
-
-// impl Entry {
-// 	pub fn has_access(&self, username: String) -> bool {
-// 		self.user == username || self.public || self.read_users.contains(&username) 
-// 	}
-// }

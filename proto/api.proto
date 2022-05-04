@@ -17,7 +17,7 @@ message PutRequest {
 message ApiChildren {
 	string name = 1;
 	string type = 2;
-	optional string entry_location = 3;
+	optional string cid = 3;
 }
 
 message ApiEntry {

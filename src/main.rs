@@ -95,7 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 					name,
 					public_key
 				}) => {
-					let (key, location, signature) = api::get_location_key(signature.clone());
+					let (key, location, signature) = api::get_location_key(signature.clone()).unwrap();
 
 					let secp = Secp256k1::new();
 					let sig = Signature::from_str(&signature.clone()).unwrap();
