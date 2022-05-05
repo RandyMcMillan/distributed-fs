@@ -26,7 +26,7 @@ use crate::service::{
 	file_upload_request::UploadRequest,
 	file_download_response::DownloadResponse,
 	FileDownloadResponse,
-	File
+	DownloadFile
 };
 use crate::entry::{Entry, EntryMetaData, Children};
 
@@ -262,36 +262,40 @@ impl Service for MyApi {
 						tokio::spawn(async move {
 							const CAP: usize = 1024 * 128;
 
-							let download_children = resolve_cid(dht_get_response.location.unwrap(), entry.metadata.children);
+							let download_children = resolve_cid(dht_get_response.location.unwrap(), entry.metadata.children).unwrap();
 							println!("{:?}", download_children);
 
-							let location = format!("./cache/{}", entry.signature);
+							for download_item in download_children.iter() {
+								let location = format!("./cache/{}", download_item.cid.as_ref().unwrap());
 
-							if Path::new(&location).exists() {
-								let file = fs::File::open(&location).unwrap();
+								if Path::new(&location).exists() {
+									let file = fs::File::open(&location).unwrap();
 
-								let mut reader = BufReader::with_capacity(CAP, file);
+									let mut reader = BufReader::with_capacity(CAP, file);
 
-								if request.download {
-									loop {
-										let buffer = reader.fill_buf().unwrap();
-										let length = buffer.len();
+									if request.download {
+										loop {
+											let buffer = reader.fill_buf().unwrap();
+											let length = buffer.len();
 
-										if length == 0 {
-											break
-										} else {
-											tx.send(Ok(FileDownloadResponse {
-												download_response: Some(DownloadResponse::File(File {
-													content: buffer.to_vec()
-												}))
-											})).await.unwrap();
-										}
+											if length == 0 {
+												break
+											} else {
+												tx.send(Ok(FileDownloadResponse {
+													download_response: Some(DownloadResponse::File(DownloadFile {
+														content: buffer.to_vec(),
+														cid: download_item.cid.as_ref().unwrap().to_string(),
+														name: download_item.name.clone()
+													}))
+												})).await.unwrap();
+											}
 
-										reader.consume(length);
-									};
+											reader.consume(length);
+										};
+									}
+								} else {
+									eprintln!("File does not exists");
 								}
-							} else {
-								eprintln!("File does not exists");
 							}
 						});
 					}
@@ -351,16 +355,28 @@ pub fn resolve_cid(location: String, metadata: Vec<Children>) -> Result<Vec<Chil
 	let mut cids = Vec::<String>::new();
 
 	if location == "/".to_string() {
-		// for child in metadata.children.iter() {
-		// 	if let Some(cid) =  child.cid.as_ref() {
-		// 		cids.push(cid.to_string());
-		// 	}
-		// }
 		return Ok(metadata.into_iter().filter(|child| child.r#type == "file".to_string()).collect())
-
-		// return Ok(cids);
 	}
 
-	// Ok(cids)
-	return Ok(metadata)
+	if let Some(child) = metadata.iter().find(|child| child.name == location ) {
+		if child.r#type != "file".to_string() {
+			return Err("Nested entry selected".to_string());
+		}
+
+		cids.push(child.cid.as_ref().unwrap().to_string());
+	} else {
+		for child in metadata.iter() {
+			if child.r#type == "file".to_owned() && child.name.starts_with(&location) {
+				let next_char = child.name.chars().nth(location.len()).unwrap().to_string();
+
+				if next_char == "/".to_string() {
+					cids.push(child.cid.as_ref().unwrap().to_string());
+				}
+			}
+		}
+	}
+
+	Ok(
+		metadata.into_iter().filter(|child| child.r#type == "file".to_string() && cids.contains(&child.cid.as_ref().unwrap())).collect()
+	)
 }

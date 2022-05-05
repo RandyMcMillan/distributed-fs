@@ -60,22 +60,35 @@ const putEntry = () => {
 
 }
 
-const downloadFile = () => {
+const clearDir = async () => new Promise((res, rej) => {
+	const path = fsPath.join(__dirname, "../download")
+	console.log(path)
+	fs.readdir(path, (err, files) => {
+		if (err) rej(err);
+
+		console.log(files)
+		for (const file of files) {
+			fs.unlinkSync(fsPath.join(path, file));
+		}
+		res(null)
+	});
+})
+
+const downloadFile = async () => {
 	const call = client.Download(
 		{
-			// location: "e_test/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/folder/file.txt",
-			location: "e_test/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/",
+			location: "e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/folder",
 			name: "Hello",
 			download: true
 		},
 		meta
 	)
 
-	if (fs.existsSync("./download")) fs.rmSync("./download")
+	await clearDir()
 	call.on("data", (res: any) => {
 		console.log("DATA: ", res[res.download_response], res)
 		if (res.download_response === "file") {
-			fs.appendFileSync("./download", res[res.download_response].content)
+			fs.appendFileSync(`./download/${fsPath.basename(res[res.download_response].name)}`, res[res.download_response].content)
 		}
 	})
 

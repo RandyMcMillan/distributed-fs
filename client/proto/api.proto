@@ -42,8 +42,10 @@ message GetResponse {
 	optional ApiEntry entry = 1;
 }
 
-message File {
+message DownloadFile {
 	bytes content = 1;
+	string cid = 2;
+	string name = 3;
 }
 
 message UploadFile {
@@ -65,6 +67,6 @@ message FileUploadRequest {
 message FileDownloadResponse {
 	oneof download_response {
 		GetResponse metadata = 1;
-		File file = 2;
+		DownloadFile file = 2;
 	}
 }
