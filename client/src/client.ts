@@ -27,46 +27,11 @@ const client = new apiProto.Service(SERVER_URL, credentials.createInsecure());
 const meta = new Metadata();
 meta.add('public_key', PUBLIC_KEY);
 
-const getEntry = (location: string) => {
-	client.Get(
-		{
-			location
-		},
-		meta,
-		(err: any, data: any) => {
-			console.log(data, err)
-		}
-	)
-}
-
-const putEntry = () => {
-	client.Put(
-		{
-			signature: "3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a",
-			entry: {
-				owner: "owner",
-				public: true,
-				read_users: [
-					"User"
-				],
-				name: "Hello"
-			}
-		},
-		meta,
-		(err: any, data: any) => {
-			console.log(data, err)
-		}
-	)
-
-}
-
-const clearDir = async () => new Promise((res, rej) => {
-	const path = fsPath.join(__dirname, "../download")
-	console.log(path)
+const clearDir = async (dir: string) => new Promise((res, rej) => {
+	const path = fsPath.join(__dirname, dir)
 	fs.readdir(path, (err, files) => {
 		if (err) rej(err);
 
-		console.log(files)
 		for (const file of files) {
 			fs.unlinkSync(fsPath.join(path, file));
 		}
@@ -75,16 +40,16 @@ const clearDir = async () => new Promise((res, rej) => {
 })
 
 const downloadFile = async () => {
-	const call = client.Download(
+	const call = client.Get(
 		{
-			location: "e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/folder",
+			location: "e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a",
 			name: "Hello",
 			download: true
 		},
 		meta
 	)
 
-	await clearDir()
+	await clearDir("../download")
 	call.on("data", (res: any) => {
 		console.log("DATA: ", res[res.download_response], res)
 		if (res.download_response === "file") {
@@ -172,7 +137,7 @@ const uploadDirectory = async (path: string) => {
 		}
 	}
 
-	let call = client.Upload(meta, (err: any, res: { key: string }) => {
+	let call = client.Put(meta, (err: any, res: { key: string }) => {
 		console.log(err, res)
 	})
 

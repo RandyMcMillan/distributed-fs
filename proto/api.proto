@@ -3,13 +3,11 @@ syntax = "proto3";
 package api;
 
 service Service {
-	rpc Get (GetRequest) returns (GetResponse);
-	rpc Put (PutRequest) returns (PutResponse);
-	rpc Upload(stream FileUploadRequest) returns(FileUploadResponse);
-	rpc Download(GetRequest) returns(stream FileDownloadResponse);
+	rpc Put(stream PutRequest) returns(PutResponse);
+	rpc Get(GetRequest) returns(stream GetResponse);
 }
 
-message PutRequest {
+message PutRequestMetadata {
 	string signature = 1;
 	ApiEntry entry = 2;
 }
@@ -28,17 +26,13 @@ message ApiEntry {
 	repeated ApiChildren children = 5;
 }
 
-message PutResponse {
-	string key = 1;
-}
-
 message GetRequest {
 	string location = 1;
 	string name = 2;	
 	bool download = 3;
 }
 
-message GetResponse {
+message GetResponseMetadata {
 	optional ApiEntry entry = 1;
 }
 
@@ -53,20 +47,20 @@ message UploadFile {
 	string cid = 2;
 }
 
-message FileUploadResponse {
+message PutResponse {
 	string key = 1;
 }
 
-message FileUploadRequest {
+message PutRequest {
 	oneof upload_request {
-		PutRequest metadata = 1;
+		PutRequestMetadata metadata = 1;
 		UploadFile file = 2;
 	}
 }
 
-message FileDownloadResponse {
+message GetResponse {
 	oneof download_response {
-		GetResponse metadata = 1;
+		GetResponseMetadata metadata = 1;
 		DownloadFile file = 2;
 	}
 }

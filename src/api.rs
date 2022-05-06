@@ -21,11 +21,8 @@ use crate::service::{
 	PutResponse, 
 	PutRequest,
 	ApiEntry, 
-	FileUploadRequest, 
-	FileUploadResponse, 
-	file_upload_request::UploadRequest,
-	file_download_response::DownloadResponse,
-	FileDownloadResponse,
+	put_request::UploadRequest,
+	get_response::DownloadResponse,
 	DownloadFile
 };
 use crate::entry::{Entry, EntryMetaData, Children};
@@ -58,12 +55,6 @@ pub struct DhtGetRecordResponse {
 }
 
 impl DhtGetRecordResponse {
-        fn default() -> Result<Response<GetResponse>, Status> {
-                Ok(Response::new(GetResponse {
-                        entry: None
-                }))
-        }
-
 	fn not_found() -> Result<Response<GetResponse>, Status>  {
 		Err(Status::new(Code::NotFound, "Entry not found"))
 	}
@@ -89,74 +80,10 @@ pub struct MyApi {
 
 #[tonic::async_trait]
 impl Service for MyApi {
-	async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
-		// let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
-		// 	location: request.get_ref().location.to_owned()
-		// });
-
-		// self.mpsc_sender.send(dht_request).await;
-		// match self.broadcast_receiver.lock().await.recv().await {
-		// 	Ok(dht_response) => match dht_response {
-                //                 DhtResponseType::GetRecord(dht_get_response) => {
-                //                         if let Some(error) = dht_get_response.error {
-		// 				return DhtGetRecordResponse::not_found();
-                //                         }
-
-                //                         Ok(Response::new(GetResponse {
-                //                                 entry: dht_get_response.entry
-                //                         }))
-                //                 }
-                //                 _ => DhtGetRecordResponse::default()
-                //         }
-		// 	Err(error) => {
-		// 		eprintln!("Error {}", error);
-                //                 DhtGetRecordResponse::default()
-		// 	}
-		// }
-		DhtGetRecordResponse::default()
-	}
-
-	async fn put(&self, request: Request<PutRequest>) -> Result<Response<PutResponse>, Status> {
-		// let signature: String = request.get_ref().signature.clone();
-		// let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-		// 	public_key: PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap(),
-		// 	signature: signature.clone(),
-		// 	entry: request.into_inner().entry.unwrap(),
-		// });
-
-		// self.mpsc_sender.send(dht_request).await;
-		// match self.broadcast_receiver.lock().await.recv().await {
-                //         Ok(dht_response) => match dht_response {
-                //                 DhtResponseType::PutRecord(dht_put_response) => {
-                //                         if let Some((code, message)) = dht_put_response.error {
-		// 				return Err(Status::new(code, message));
-                //                         }
-
-		// 			Ok(Response::new(PutResponse {
-		// 				key: signature.clone()
-		// 			}))
-                //                 }
-                //                 _ => {
-		// 			println!("unknown error");
-		// 			Ok(Response::new(PutResponse {
-		// 				key: signature.clone()
-		// 			}))
-		// 		}
-                //         }
-                //         Err(error) => {
-		// 		eprintln!("{}", error);
-		// 		Ok(Response::new(PutResponse {
-		// 			key: signature
-		// 		}))
-                //         }
-                // }
-		Err(Status::new(Code::Unknown, "_".to_owned()))
-	}
-
-        async fn upload(
+        async fn put(
                 &self, 
-                request: Request<tonic::Streaming<FileUploadRequest>>
-        ) -> Result<Response<FileUploadResponse>, Status> {
+                request: Request<tonic::Streaming<PutRequest>>
+        ) -> Result<Response<PutResponse>, Status> {
 		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
                 let mut stream = request.into_inner();
 
@@ -189,14 +116,14 @@ impl Service for MyApi {
 							}
 							_ => {
 								println!("unknown error");
-								return Ok(Response::new(FileUploadResponse {
+								return Ok(Response::new(PutResponse {
 									key: signature.unwrap().clone()
 								}));
 							}
 						}
 						Err(error) => {
 							eprintln!("{}", error);
-							return Ok(Response::new(FileUploadResponse {
+							return Ok(Response::new(PutResponse {
 								key: signature.unwrap()
 							}));
 						}
@@ -226,17 +153,17 @@ impl Service for MyApi {
 			}
 		}
 
-	        Ok(Response::new(FileUploadResponse {
+	        Ok(Response::new(PutResponse {
 			key: signature.unwrap()
 		}))
         }
 
-	type DownloadStream = ReceiverStream<Result<FileDownloadResponse, Status>>;
+	type GetStream = ReceiverStream<Result<GetResponse, Status>>;
 
-	async fn download(
+	async fn get(
 		&self,
 		request: Request<GetRequest>
-	) -> Result<Response<Self::DownloadStream>, Status> {
+	) -> Result<Response<Self::GetStream>, Status> {
 		let public_key = PublicKey::from_str(request.metadata().get("public_key").unwrap().to_str().unwrap()).unwrap();
 		let request = request.into_inner();
 		let (tx, rx) = mpsc::channel(4);
@@ -281,7 +208,7 @@ impl Service for MyApi {
 											if length == 0 {
 												break
 											} else {
-												tx.send(Ok(FileDownloadResponse {
+												tx.send(Ok(GetResponse {
 													download_response: Some(DownloadResponse::File(DownloadFile {
 														content: buffer.to_vec(),
 														cid: download_item.cid.as_ref().unwrap().to_string(),
