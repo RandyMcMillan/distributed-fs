@@ -1,7 +1,5 @@
 use libp2p::kad::record::Key;
-use secp256k1::{PublicKey, Secp256k1, SecretKey, Message};
-use secp256k1::hashes::sha256;
-use secp256k1::ecdsa::Signature;
+use secp256k1::PublicKey;
 use std::str::FromStr;
 use futures::stream::StreamExt;
 use std::fs;
@@ -10,8 +8,8 @@ use tokio::sync::{mpsc, broadcast};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::Mutex;
 use std::sync::Arc;
-use std::io::{self, BufRead, BufReader};
-use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
 
 use tonic::{Request, Response, Status, Code};
 use crate::service::service_server::Service;
@@ -25,7 +23,7 @@ use crate::service::{
 	get_response::DownloadResponse,
 	DownloadFile
 };
-use crate::entry::{Entry, EntryMetaData, Children};
+use crate::entry::{Entry, Children};
 
 #[derive(Debug)]
 pub struct DhtGetRecordRequest {
@@ -52,12 +50,6 @@ pub struct DhtGetRecordResponse {
 	pub entry: Option<Entry>,
 	pub error: Option<(Code, String)>,
 	pub location: Option<String>
-}
-
-impl DhtGetRecordResponse {
-	fn not_found() -> Result<Response<GetResponse>, Status>  {
-		Err(Status::new(Code::NotFound, "Entry not found"))
-	}
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +94,7 @@ impl Service for MyApi {
 						entry: metadata.entry.unwrap(),
 					});
 
-					self.mpsc_sender.send(dht_request).await;
+					self.mpsc_sender.send(dht_request).await.unwrap();
 					match self.broadcast_receiver.lock().await.recv().await {
 						Ok(dht_response) => match dht_response {
 							DhtResponseType::PutRecord(dht_put_response) => {
@@ -122,7 +114,7 @@ impl Service for MyApi {
 							}
 						}
 						Err(error) => {
-							eprintln!("{}", error);
+							eprintln!("Error: {}", error);
 							return Ok(Response::new(PutResponse {
 								key: signature.unwrap()
 							}));
@@ -174,8 +166,7 @@ impl Service for MyApi {
 			name: request.name.to_owned()
 		});
 		
-		self.mpsc_sender.send(dht_request).await;
-
+		self.mpsc_sender.send(dht_request).await.unwrap();
 		match self.broadcast_receiver.lock().await.recv().await {
 			Ok(dht_response) => match dht_response {
 				DhtResponseType::GetRecord(dht_get_response) => {
@@ -184,13 +175,11 @@ impl Service for MyApi {
 					}
 
 					let entry = dht_get_response.entry.unwrap();
-
 					if request.download {
 						tokio::spawn(async move {
 							const CAP: usize = 1024 * 128;
 
 							let download_children = resolve_cid(dht_get_response.location.unwrap(), entry.metadata.children).unwrap();
-							println!("{:?}", download_children);
 
 							for download_item in download_children.iter() {
 								let location = format!("./cache/{}", download_item.cid.as_ref().unwrap());
