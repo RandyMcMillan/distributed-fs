@@ -48,6 +48,7 @@ async fn create_swarm() -> Swarm<MyBehaviour> {
         let behaviour = MyBehaviour { 
 		kademlia, 
 		mdns, 
+		request_response: MyBehaviour::create_req_res()
 	};
         Swarm::new(transport, behaviour, local_peer_id)
 }
