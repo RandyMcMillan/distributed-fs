@@ -39,6 +39,7 @@ use api::{
 async fn create_swarm() -> Swarm<MyBehaviour> {
 	let local_key = identity::Keypair::generate_ed25519();
 	let local_peer_id = PeerId::from(local_key.public());
+	println!("{:?}", local_peer_id);
 
 	let transport = development_transport(local_key).await.unwrap();
 
@@ -67,6 +68,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		return Ok(());
 	}
 
+	if args.len() < 3 {
+		println!("Provide server_addr");
+		return Ok(());
+	}
+
 	let mut swarm = create_swarm().await;
 	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
 	let dht_swarm = Dht::new(swarm);
@@ -83,8 +89,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver))
 	};
 	let server = Server::builder().add_service(ServiceServer::new(api));
+	
 
-	let addr = "192.168.0.164:50051".parse().unwrap();
+	let addr = args[2].parse().unwrap();
 	println!("Server listening on {}", addr);
 	server.serve(addr).await.unwrap();
 

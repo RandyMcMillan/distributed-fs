@@ -9,16 +9,16 @@ use libp2p::{
     NetworkBehaviour, 
     swarm::{NetworkBehaviourEventProcess}
 };
-use libp2p::core::upgrade::{read_length_prefixed, write_length_prefixed, ProtocolName};
+use libp2p::core::upgrade::{
+	read_length_prefixed, write_length_prefixed, ProtocolName
+};
 use libp2p::request_response::{
-	ProtocolSupport, RequestId, RequestResponse, RequestResponseCodec, RequestResponseEvent,
-	RequestResponseMessage, ResponseChannel,
+	ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent,
 };
 use async_trait::async_trait;
 use std::iter;
 use async_std::io;
 use futures::prelude::*;
-
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]
@@ -54,19 +54,21 @@ impl From<RequestResponseEvent<FileRequest, FileResponse>> for OutEvent {
 
 impl From<KademliaEvent> for OutEvent {
 	fn from(event: KademliaEvent) -> Self {
-		println!("{:?}", event);
+		println!("Kademlia Event: {:?}", event);
 		Self::Kademlia(event)
 	}
 }
 
 impl From<MdnsEvent> for OutEvent {
 	fn from(event: MdnsEvent) -> Self {
+		// println!("MDNS: {:?}", event);
 		Self::Mdns(event)
 	}
 }
 
 impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
 	fn inject_event(&mut self, event: MdnsEvent) {
+		println!("MDNS2: {:?}", event);
 		if let MdnsEvent::Discovered(list) = event {
 			for (peer_id, multiaddr) in list {
 				println!("{:?}, {:?}", peer_id, multiaddr);
@@ -99,9 +101,9 @@ pub struct FileExchangeProtocol();
 #[derive(Clone)]
 pub struct FileExchangeCodec();
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileRequest(String);
+pub struct FileRequest(pub String);
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileResponse(String);
+pub struct FileResponse(pub String);
 
 impl ProtocolName for FileExchangeProtocol {
 	fn protocol_name(&self) -> &[u8] {
@@ -126,8 +128,10 @@ impl RequestResponseCodec for FileExchangeCodec {
 		let vec = read_length_prefixed(io, 1_000_000).await?;
 
 		if vec.is_empty() {
-		return Err(io::ErrorKind::UnexpectedEof.into());
+			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
+
+		println!("read_request {:?}", vec);
 
 		Ok(FileRequest(String::from_utf8(vec).unwrap()))
 	}
@@ -143,8 +147,9 @@ impl RequestResponseCodec for FileExchangeCodec {
 		let vec = read_length_prefixed(io, 1_000_000).await?;
 
 		if vec.is_empty() {
-		return Err(io::ErrorKind::UnexpectedEof.into());
+			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
+		println!("read_response {:?}", vec);
 
 		Ok(FileResponse(String::from_utf8(vec).unwrap()))
 	}
@@ -158,6 +163,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
+		println!("write request {:?}\n", data);
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 
@@ -173,6 +179,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
+		println!("write response {:?}\n", data);
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 

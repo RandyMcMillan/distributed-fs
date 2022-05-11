@@ -1,6 +1,7 @@
 use libp2p::{
 	Swarm,
-	swarm::SwarmEvent
+	swarm::SwarmEvent,
+	PeerId
 };
 use libp2p::kad::{
 	Record, 
@@ -10,7 +11,8 @@ use libp2p::kad::{
 	record::Key
 };
 use futures::StreamExt;
-use crate::behaviour::{MyBehaviour, OutEvent};
+use crate::behaviour::{MyBehaviour, OutEvent, FileRequest};
+use std::str::FromStr;
 
 pub struct Dht (pub Swarm<MyBehaviour>);
 
@@ -58,7 +60,17 @@ impl Dht {
 		match res {
 			QueryResult::PutRecord(d) => {
 				match d {
-					Ok(dd) => Ok(dd.key),
+					Ok(dd) => {
+						let behaviour = self.0.behaviour_mut();
+						
+						let peer = PeerId::from_str("12D3KooWDpAHAhK6B7S45viqEcyVmJR2Hj7vM7AXNSa9rWMFF6BQ").unwrap();
+						let request_id = behaviour
+							.request_response
+							.send_request(&peer, FileRequest("some_file_name".to_string()));
+						println!("Request sent: {:?}", request_id);
+
+						Ok(dd.key)
+					},
 					Err(e) => Err(format!("{:?}", e))
 				}
 			}
