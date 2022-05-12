@@ -64,7 +64,9 @@ impl ApiHandler {
 									.expect("Error removing address");
 							}
 						}
-						_ => {}
+						_ => {
+							println!("OTHER: \n{:?}\n\n", event);
+						}
 					}
 				}
 				data = mpsc_receiver_stream.next() => {

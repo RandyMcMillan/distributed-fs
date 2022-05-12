@@ -2,12 +2,10 @@ use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{
      Kademlia,
      KademliaEvent,
-     QueryResult,
 };
 use libp2p::{
     mdns::{Mdns, MdnsEvent},
     NetworkBehaviour, 
-    swarm::{NetworkBehaviourEventProcess}
 };
 use libp2p::core::upgrade::{
 	read_length_prefixed, write_length_prefixed, ProtocolName
@@ -54,7 +52,7 @@ impl From<RequestResponseEvent<FileRequest, FileResponse>> for OutEvent {
 
 impl From<KademliaEvent> for OutEvent {
 	fn from(event: KademliaEvent) -> Self {
-		println!("Kademlia Event: {:?}", event);
+		// println!("Kademlia Event: {:?}", event);
 		Self::Kademlia(event)
 	}
 }
@@ -66,34 +64,34 @@ impl From<MdnsEvent> for OutEvent {
 	}
 }
 
-impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
-	fn inject_event(&mut self, event: MdnsEvent) {
-		println!("MDNS2: {:?}", event);
-		if let MdnsEvent::Discovered(list) = event {
-			for (peer_id, multiaddr) in list {
-				println!("{:?}, {:?}", peer_id, multiaddr);
-				self.kademlia.add_address(&peer_id, multiaddr);
-			}
-		}
-	}
-}
+// impl NetworkBehaviourEventProcess<MdnsEvent> for MyBehaviour {
+// 	fn inject_event(&mut self, event: MdnsEvent) {
+// 		println!("MDNS2: {:?}", event);
+// 		if let MdnsEvent::Discovered(list) = event {
+// 			for (peer_id, multiaddr) in list {
+// 				println!("{:?}, {:?}", peer_id, multiaddr);
+// 				self.kademlia.add_address(&peer_id, multiaddr);
+// 			}
+// 		}
+// 	}
+// }
 
-impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
-	fn inject_event(&mut self, msg: KademliaEvent) {
-		match msg {
-			KademliaEvent::OutboundQueryCompleted { result, .. } => match result {
-				QueryResult::GetRecord(Ok(_ok)) => {},
-				QueryResult::GetRecord(Err(err)) => {
-					eprintln!("Failed to get record: {:?}", err);
-				},
-				_ => {
-					println!("\n{:?}\n", result);
-				}
-			},
-			_ => {}
-		}
-	}
-}
+// impl NetworkBehaviourEventProcess<KademliaEvent> for MyBehaviour {
+// 	fn inject_event(&mut self, msg: KademliaEvent) {
+// 		match msg {
+// 			KademliaEvent::OutboundQueryCompleted { result, .. } => match result {
+// 				QueryResult::GetRecord(Ok(_ok)) => {},
+// 				QueryResult::GetRecord(Err(err)) => {
+// 					eprintln!("Failed to get record: {:?}", err);
+// 				},
+// 				_ => {
+// 					println!("\n{:?}\n", result);
+// 				}
+// 			},
+// 			_ => {}
+// 		}
+// 	}
+// }
 
 
 #[derive(Debug, Clone)]
@@ -131,8 +129,6 @@ impl RequestResponseCodec for FileExchangeCodec {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
 
-		println!("read_request {:?}", vec);
-
 		Ok(FileRequest(String::from_utf8(vec).unwrap()))
 	}
 
@@ -149,7 +145,6 @@ impl RequestResponseCodec for FileExchangeCodec {
 		if vec.is_empty() {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
-		println!("read_response {:?}", vec);
 
 		Ok(FileResponse(String::from_utf8(vec).unwrap()))
 	}
@@ -163,7 +158,6 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
-		println!("write request {:?}\n", data);
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 
@@ -179,7 +173,6 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
-		println!("write response {:?}\n", data);
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 

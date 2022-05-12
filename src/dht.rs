@@ -1,7 +1,6 @@
 use libp2p::{
 	Swarm,
 	swarm::SwarmEvent,
-	PeerId
 };
 use libp2p::kad::{
 	Record, 
@@ -12,7 +11,6 @@ use libp2p::kad::{
 };
 use futures::StreamExt;
 use crate::behaviour::{MyBehaviour, OutEvent, FileRequest};
-use std::str::FromStr;
 
 pub struct Dht (pub Swarm<MyBehaviour>);
 
@@ -46,9 +44,7 @@ impl Dht {
 			expires: None,
 		};
 
-
 		let behaviour = self.0.behaviour_mut();
-
 		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");
 
 		let res = loop {
@@ -62,11 +58,33 @@ impl Dht {
 				match d {
 					Ok(dd) => {
 						let behaviour = self.0.behaviour_mut();
+
+						behaviour.kademlia.get_providers(dd.key.clone());
+
+						let res = loop {
+							if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
+								break result;
+							}
+						};
+
+						let peer_id = match res {
+							QueryResult::GetProviders(p) => {
+								let p = p.unwrap();
+								if p.closest_peers.len() == 0 {
+									return Ok(dd.key);
+								}
+
+								p.closest_peers[0]
+							},
+							_ => {
+								return Ok(dd.key);
+							}
+						};
 						
-						let peer = PeerId::from_str("12D3KooWDpAHAhK6B7S45viqEcyVmJR2Hj7vM7AXNSa9rWMFF6BQ").unwrap();
+						let behaviour = self.0.behaviour_mut();
 						let request_id = behaviour
 							.request_response
-							.send_request(&peer, FileRequest("some_file_name".to_string()));
+							.send_request(&peer_id, FileRequest("some_file_name".to_string()));
 						println!("Request sent: {:?}", request_id);
 
 						Ok(dd.key)
