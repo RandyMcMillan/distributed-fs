@@ -45,7 +45,7 @@ pub enum OutEvent {
 
 impl From<RequestResponseEvent<FileRequest, FileResponse>> for OutEvent {
 	fn from(event: RequestResponseEvent<FileRequest, FileResponse>) -> Self {
-		println!("Request_response event: {:?}", event);
+		// println!("Request_response event: {:?}", event);
 		Self::RequestResponse(event)
 	}
 }

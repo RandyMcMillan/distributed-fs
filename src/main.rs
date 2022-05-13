@@ -81,7 +81,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<DhtResponseType>(32);
 
 	tokio::spawn(async move { 
-		handler::ApiHandler::run(mpsc_receiver, broadcast_sender, dht_swarm).await;
+		let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, dht_swarm);
+		h.run().await;
 	});
 
 	let api = MyApi {

@@ -2,6 +2,10 @@ use tokio_stream::wrappers::ReceiverStream;
 use libp2p::kad::record::Key;
 use libp2p::mdns::MdnsEvent;
 use libp2p::swarm::SwarmEvent;
+use libp2p::request_response::{
+	RequestResponseEvent,
+	RequestResponseMessage
+};
 use tokio::sync::{mpsc, broadcast};
 use secp256k1::{Secp256k1, Message};
 use secp256k1::hashes::sha256;
@@ -14,7 +18,11 @@ use futures::stream::StreamExt;
 use crate::dht::Dht;
 use crate::api;
 use crate::entry::Entry;
-use crate::behaviour::OutEvent;
+use crate::behaviour::{
+	OutEvent,
+	FileResponse,
+	FileRequest
+};
 use crate::api::{
 	DhtGetRecordRequest,
 	DhtResponseType, 
@@ -25,28 +33,30 @@ use crate::api::{
 };
 
 pub struct ApiHandler {
-	mpsc_receiver: mpsc::Receiver<DhtRequestType>, 
+	mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
 	dht_swarm: Dht
 }
 
 impl ApiHandler {
-	pub async fn run(
+	pub fn new(
 		mpsc_receiver: mpsc::Receiver<DhtRequestType>, 
 		broadcast_sender: broadcast::Sender<DhtResponseType>,
 		dht_swarm: Dht
-	) {
-		let mut handler = Self {
-			mpsc_receiver,
+	) -> Self {
+		let  mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
+
+		Self {
+			mpsc_receiver_stream,
 			broadcast_sender,
 			dht_swarm
-		};
+		}
+	}
 
-		let mut mpsc_receiver_stream = ReceiverStream::new(handler.mpsc_receiver);
-
+	pub async fn run(&mut self) {
 		loop {
 			tokio::select! {
-				event = handler.dht_swarm.0.select_next_some() => {
+				event = self.dht_swarm.0.select_next_some() => {
 					match event {
 						SwarmEvent::NewListenAddr { address, .. } => {
 							println!("Listening on {:?}", address);
@@ -54,22 +64,23 @@ impl ApiHandler {
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
 							for (peer_id, multiaddr) in list {
 								println!("discovered {:?}", peer_id);
-								handler.dht_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+								self.dht_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
 							}
 						}
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
 							for (peer_id, multiaddr) in list {
 								println!("expired {:?}", peer_id);
-								handler.dht_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
+								self.dht_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
 									.expect("Error removing address");
 							}
 						}
-						_ => {
-							println!("OTHER: \n{:?}\n\n", event);
-						}
+						SwarmEvent::Behaviour(OutEvent::RequestResponse(
+							RequestResponseEvent::Message { message, .. },
+						)) => self.handle_request_response(message),
+						_ => {}
 					}
 				}
-				data = mpsc_receiver_stream.next() => {
+				data = self.mpsc_receiver_stream.next() => {
 					let data = data.unwrap();
 
 					match data {
@@ -88,7 +99,7 @@ impl ApiHandler {
 
 							match secp.verify_ecdsa(&message, &sig, &public_key) {
 								Err(_error) => {
-									handler.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 										entry: None,
 										error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
 										location: None
@@ -98,18 +109,18 @@ impl ApiHandler {
 								_ => {}
 							}
 
-							match handler.dht_swarm.get(&key).await {
+							match self.dht_swarm.get(&key).await {
 								Ok(record) => {
 									let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-									handler.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 										entry: Some(entry),
 										error: None,
 										location: Some(location)
 									})).unwrap();
 								}
 								Err(error) => {
-									handler.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
 										entry: None,
 										error: Some((Code::NotFound, error.to_string())),
 										location: None
@@ -136,7 +147,7 @@ impl ApiHandler {
 
 							match secp.verify_ecdsa(&message, &sig, &pub_key) {
 								Err(_error) => {
-									handler.broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
+									self.broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
 										signature: Some(key),
 										error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
 									})).unwrap();
@@ -145,7 +156,7 @@ impl ApiHandler {
 								_ => {}
 							}
 
-							let res = match handler.dht_swarm.put(Key::new(&key.clone()), value).await {
+							let res = match self.dht_swarm.put(Key::new(&key.clone()), value).await {
 								Ok(_) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
 									signature: Some(key),
 									error: None
@@ -158,7 +169,7 @@ impl ApiHandler {
 								})
 							};
 
-							handler.broadcast_sender.send(res).unwrap();
+							self.broadcast_sender.send(res).unwrap();
 						}
 					};
 
@@ -166,5 +177,17 @@ impl ApiHandler {
 
 			}
 		}
+	}
+
+	pub fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>) {
+		match message {
+			RequestResponseMessage::Request { request, channel, .. } => {
+				let FileRequest(file_name) = request;
+				println!("{}", file_name);
+			}
+			RequestResponseMessage::Response { response, request_id } => {
+				println!("{:?}, {:?}", response, request_id);
+			}
+		};
 	}
 }
