@@ -77,14 +77,14 @@ impl Dht {
 								p.closest_peers[0]
 							},
 							_ => {
-								return Ok(dd.key);
+								return Ok(dd.key.clone());
 							}
 						};
 						
 						let behaviour = self.0.behaviour_mut();
 						let request_id = behaviour
 							.request_response
-							.send_request(&peer_id, FileRequest("some_file_name".to_string()));
+							.send_request(&peer_id, FileRequest(dd.key.clone()));
 						println!("Request sent: {:?}", request_id);
 
 						Ok(dd.key)
@@ -92,6 +92,27 @@ impl Dht {
 					Err(e) => Err(format!("{:?}", e))
 				}
 			}
+			_ => Err("Something went wrong".to_string())
+		}
+	}
+
+	pub async fn start_providing(&mut self, key: Key) -> Result<Key, String> {
+		let behaviour = self.0.behaviour_mut();
+
+		behaviour.kademlia.start_providing(key.clone()).expect("Failed to start providing key");
+
+		let res = loop {
+			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted { result, .. })) = self.0.select_next_some().await {
+				break result;
+			}
+		};
+
+		match res {
+			QueryResult::StartProviding(r) => match r {
+				Ok(_r) => Ok(key),
+				Err(_error) => Err("Error on StartProviding".to_string())
+
+			},
 			_ => Err("Something went wrong".to_string())
 		}
 	}

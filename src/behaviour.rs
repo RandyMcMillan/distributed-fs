@@ -1,4 +1,5 @@
 use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::record::Key;
 use libp2p::kad::{
      Kademlia,
      KademliaEvent,
@@ -99,7 +100,7 @@ pub struct FileExchangeProtocol();
 #[derive(Clone)]
 pub struct FileExchangeCodec();
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileRequest(pub String);
+pub struct FileRequest(pub Key);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileResponse(pub String);
 
@@ -129,7 +130,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
 
-		Ok(FileRequest(String::from_utf8(vec).unwrap()))
+		Ok(FileRequest(Key::from(vec)))
 	}
 
 	async fn read_response<T>(

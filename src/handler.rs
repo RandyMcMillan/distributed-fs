@@ -76,118 +76,151 @@ impl ApiHandler {
 						}
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
 							RequestResponseEvent::Message { message, .. },
-						)) => self.handle_request_response(message),
+						)) => {
+							match self.handle_request_response(message).await {
+								Err(error) => println!("{}", error),
+								_ => {}
+							}; 
+						}
+						SwarmEvent::Behaviour(OutEvent::Kademlia(e)) => {
+							println!("OTHER KAD: \n{:?}", e);
+						}
 						_ => {}
 					}
 				}
 				data = self.mpsc_receiver_stream.next() => {
-					let data = data.unwrap();
-
-					match data {
-						DhtRequestType::GetRecord(DhtGetRecordRequest {
-							signature,
-							name,
-							public_key
-						}) => {
-							let (key, location, signature) = api::get_location_key(signature.clone()).unwrap();
-
-							let secp = Secp256k1::new();
-							let sig = Signature::from_str(&signature.clone()).unwrap();
-							let message = Message::from_hashed_data::<sha256::Hash>(
-								format!("{}/{}", public_key.to_string(), name).as_bytes()
-							);
-
-							match secp.verify_ecdsa(&message, &sig, &public_key) {
-								Err(_error) => {
-									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-										entry: None,
-										error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
-										location: None
-									})).unwrap();
-									continue;
-								}
-								_ => {}
-							}
-
-							match self.dht_swarm.get(&key).await {
-								Ok(record) => {
-									let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-
-									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-										entry: Some(entry),
-										error: None,
-										location: Some(location)
-									})).unwrap();
-								}
-								Err(error) => {
-									self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-										entry: None,
-										error: Some((Code::NotFound, error.to_string())),
-										location: None
-									})).unwrap();
-								}
-							};
-						}
-						DhtRequestType::PutRecord(DhtPutRecordRequest {
-							entry,
-							signature,
-							public_key
-						}) => {
-							let pub_key = public_key.clone();
-							let key: String = format!("e_{}", signature.to_string());
-
-							let secp = Secp256k1::new();
-							let sig = Signature::from_str(&signature.clone()).unwrap();
-							let message = Message::from_hashed_data::<sha256::Hash>(
-								format!("{}/{}", pub_key.to_string(), entry.name).as_bytes()
-							);
-
-							let entry = Entry::new(signature, public_key.to_string(), entry);
-							let value = serde_json::to_vec(&entry).unwrap();
-
-							match secp.verify_ecdsa(&message, &sig, &pub_key) {
-								Err(_error) => {
-									self.broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
-										signature: Some(key),
-										error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
-									})).unwrap();
-									continue;
-								}
-								_ => {}
-							}
-
-							let res = match self.dht_swarm.put(Key::new(&key.clone()), value).await {
-								Ok(_) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
-									signature: Some(key),
-									error: None
-								}),
-								Err(_error) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
-									// signature: None,
-									// error: Some((Code::Unknown, error.to_string()))
-									error: None,
-									signature: Some(key)
-								})
-							};
-
-							self.broadcast_sender.send(res).unwrap();
-						}
+					match self.handle_api_event(data.unwrap()).await {
+						Err(error) => println!("{}", error),
+						_ => {}
 					};
-
 				}
-
 			}
 		}
 	}
 
-	pub fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>) {
+	pub async fn handle_api_event(&mut self, data: DhtRequestType) -> Result<(), String> {
+		match data {
+			DhtRequestType::GetRecord(DhtGetRecordRequest {
+				signature,
+				name,
+				public_key
+			}) => {
+				let (key, location, signature) = api::get_location_key(signature.clone()).unwrap();
+
+				let secp = Secp256k1::new();
+				let sig = Signature::from_str(&signature.clone()).unwrap();
+				let message = Message::from_hashed_data::<sha256::Hash>(
+					format!("{}/{}", public_key.to_string(), name).as_bytes()
+				);
+
+				match secp.verify_ecdsa(&message, &sig, &public_key) {
+					Err(_error) => {
+						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+							entry: None,
+							error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
+							location: None
+						})).unwrap();
+						return Ok(());
+					}
+					_ => {}
+				}
+
+				match self.dht_swarm.get(&key).await {
+					Ok(record) => {
+						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+
+						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+							entry: Some(entry),
+							error: None,
+							location: Some(location)
+						})).unwrap();
+					}
+					Err(error) => {
+						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+							entry: None,
+							error: Some((Code::NotFound, error.to_string())),
+							location: None
+						})).unwrap();
+					}
+				};
+			}
+			DhtRequestType::PutRecord(DhtPutRecordRequest {
+				entry,
+				signature,
+				public_key
+			}) => {
+				let pub_key = public_key.clone();
+				let key: String = format!("e_{}", signature.to_string());
+
+				let secp = Secp256k1::new();
+				let sig = Signature::from_str(&signature.clone()).unwrap();
+				let message = Message::from_hashed_data::<sha256::Hash>(
+					format!("{}/{}", pub_key.to_string(), entry.name).as_bytes()
+				);
+
+				let entry = Entry::new(signature, public_key.to_string(), entry);
+				let value = serde_json::to_vec(&entry).unwrap();
+
+				match secp.verify_ecdsa(&message, &sig, &pub_key) {
+					Err(_error) => {
+						self.broadcast_sender.send(DhtResponseType::PutRecord(DhtPutRecordResponse {
+							signature: Some(key),
+							error: Some((Code::Unauthenticated, "Invalid signature".to_string()))
+						})).unwrap();
+						return Ok(());
+					}
+					_ => {}
+				}
+
+				let res = match self.dht_swarm.put(Key::new(&key.clone()), value).await {
+					Ok(_) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
+						signature: Some(key),
+						error: None
+					}),
+					Err(_error) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
+						// signature: None,
+						// error: Some((Code::Unknown, error.to_string()))
+						error: None,
+						signature: Some(key)
+					})
+				};
+
+				self.broadcast_sender.send(res).unwrap();
+			}
+		};
+
+		Ok(())
+	}
+
+	pub async fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>) -> Result<(), String> {
 		match message {
 			RequestResponseMessage::Request { request, channel, .. } => {
 				let FileRequest(file_name) = request;
-				println!("{}", file_name);
+
+				match self.dht_swarm.start_providing(file_name.clone()).await {
+					Err(error) => return Err(error),
+					_ => {}
+				};
+
+				match self.dht_swarm.get(&file_name).await {
+					Ok(record) => {
+						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+						
+						if entry.metadata.children.len() != 0 {
+							let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+							println!("{}", get_cid);
+						}
+					}						
+					Err(error) => {
+						eprintln!("Error while getting record: {:?}", error);
+					}
+				};
 			}
 			RequestResponseMessage::Response { response, request_id } => {
 				println!("{:?}, {:?}", response, request_id);
 			}
 		};
+
+		Ok(())
 	}
 }
