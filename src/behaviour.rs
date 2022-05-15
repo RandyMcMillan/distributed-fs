@@ -1,5 +1,5 @@
+use serde::{Serialize, Deserialize};
 use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::record::Key;
 use libp2p::kad::{
      Kademlia,
      KademliaEvent,
@@ -9,13 +9,18 @@ use libp2p::{
     NetworkBehaviour, 
 };
 use libp2p::core::upgrade::{
-	read_length_prefixed, write_length_prefixed, ProtocolName
+	read_length_prefixed, 
+	write_length_prefixed, 
+	ProtocolName
 };
 use libp2p::request_response::{
-	ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent,
+	ProtocolSupport, 
+	RequestResponse, 
+	RequestResponseCodec, 
+	RequestResponseEvent
 };
 use async_trait::async_trait;
-use std::iter;
+use std::{iter, str};
 use async_std::io;
 use futures::prelude::*;
 
@@ -97,10 +102,19 @@ impl From<MdnsEvent> for OutEvent {
 
 #[derive(Debug, Clone)]
 pub struct FileExchangeProtocol();
+
 #[derive(Clone)]
 pub struct FileExchangeCodec();
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileRequest(pub Key);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileRequestType {
+	GetFileRequest(String),
+	ProvideRequest(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRequest(pub FileRequestType);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileResponse(pub String);
 
@@ -129,8 +143,10 @@ impl RequestResponseCodec for FileExchangeCodec {
 		if vec.is_empty() {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
+		
+		let req: FileRequest = serde_json::from_str(&str::from_utf8(&vec).unwrap()).unwrap();
 
-		Ok(FileRequest(Key::from(vec)))
+		Ok(req)
 	}
 
 	async fn read_response<T>(
@@ -154,11 +170,13 @@ impl RequestResponseCodec for FileExchangeCodec {
 		&mut self,
 		_: &FileExchangeProtocol,
 		io: &mut T,
-		FileRequest(data): FileRequest,
+		FileRequest(d): FileRequest,
 	) -> io::Result<()>
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
+		let data = serde_json::to_vec(&d).unwrap();
+
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 

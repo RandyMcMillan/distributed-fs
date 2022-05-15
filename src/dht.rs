@@ -10,7 +10,12 @@ use libp2p::kad::{
 	record::Key
 };
 use futures::StreamExt;
-use crate::behaviour::{MyBehaviour, OutEvent, FileRequest};
+use crate::behaviour::{
+	MyBehaviour, 
+	OutEvent, 
+	FileRequest, 
+	FileRequestType
+};
 
 pub struct Dht (pub Swarm<MyBehaviour>);
 
@@ -32,7 +37,10 @@ impl Dht {
 
 		match res {
 			QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
-			_ => Err("Record not found")
+			_ => {
+				println!("{:?}", res);
+				Err("Record not found")
+			}
 		}
 	}
 
@@ -43,6 +51,7 @@ impl Dht {
 			publisher: None,
 			expires: None,
 		};
+		
 
 		let behaviour = self.0.behaviour_mut();
 		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");
@@ -82,10 +91,10 @@ impl Dht {
 						};
 						
 						let behaviour = self.0.behaviour_mut();
-						let request_id = behaviour
+						let key = String::from_utf8(dd.key.clone().to_vec()).unwrap();
+						behaviour
 							.request_response
-							.send_request(&peer_id, FileRequest(dd.key.clone()));
-						println!("Request sent: {:?}", request_id);
+							.send_request(&peer_id, FileRequest(FileRequestType::ProvideRequest(key)));
 
 						Ok(dd.key)
 					},

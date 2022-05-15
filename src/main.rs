@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	}
 
 	let mut swarm = create_swarm().await;
-	swarm.listen_on("/ip4/192.168.0.164/tcp/0".parse()?)?;
+	swarm.listen_on("/ip4/192.168.0.248/tcp/0".parse()?)?;
 	let dht_swarm = Dht::new(swarm);
 
 	let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);

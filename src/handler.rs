@@ -1,4 +1,5 @@
 use tokio_stream::wrappers::ReceiverStream;
+use libp2p::PeerId;
 use libp2p::kad::record::Key;
 use libp2p::mdns::MdnsEvent;
 use libp2p::swarm::SwarmEvent;
@@ -21,7 +22,8 @@ use crate::entry::Entry;
 use crate::behaviour::{
 	OutEvent,
 	FileResponse,
-	FileRequest
+	FileRequest,
+	FileRequestType
 };
 use crate::api::{
 	DhtGetRecordRequest,
@@ -75,15 +77,15 @@ impl ApiHandler {
 							}
 						}
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
-							RequestResponseEvent::Message { message, .. },
+							RequestResponseEvent::Message { message, peer },
 						)) => {
-							match self.handle_request_response(message).await {
+							match self.handle_request_response(message, peer).await {
 								Err(error) => println!("{}", error),
 								_ => {}
 							}; 
 						}
-						SwarmEvent::Behaviour(OutEvent::Kademlia(e)) => {
-							println!("OTHER KAD: \n{:?}", e);
+						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
+							// println!("OTHER KAD: \n{:?}", e);
 						}
 						_ => {}
 					}
@@ -192,29 +194,51 @@ impl ApiHandler {
 		Ok(())
 	}
 
-	pub async fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>) -> Result<(), String> {
+	pub async fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>, peer: PeerId) -> Result<(), String> {
 		match message {
 			RequestResponseMessage::Request { request, channel, .. } => {
-				let FileRequest(file_name) = request;
+				let FileRequest(r) = request;
+				match r {
+					FileRequestType::ProvideRequest(key) => {
+						self.dht_swarm.0.behaviour_mut()
+							.request_response
+							.send_response(channel, FileResponse("response msg".to_owned()))
+							.expect("Faild to send response");
 
-				match self.dht_swarm.start_providing(file_name.clone()).await {
-					Err(error) => return Err(error),
-					_ => {}
-				};
+						let k = Key::from(key.as_bytes().to_vec());
 
-				match self.dht_swarm.get(&file_name).await {
-					Ok(record) => {
-						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-						
-						if entry.metadata.children.len() != 0 {
-							let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
-							println!("{}", get_cid);
-						}
-					}						
-					Err(error) => {
-						eprintln!("Error while getting record: {:?}", error);
+						match self.dht_swarm.start_providing(k.clone()).await {
+							Err(error) => return Err(error),
+							_ => {}
+						};
+
+						match self.dht_swarm.get(&k).await {
+							Ok(record) => {
+								let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+								println!("{:#?}", entry);
+								
+								if entry.metadata.children.len() != 0 {
+									let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+
+									self.dht_swarm.0.behaviour_mut()
+										.request_response
+										.send_request(&peer, FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned())));
+								}
+							}						
+							Err(error) => {
+								eprintln!("Error while getting record: {:?}", error);
+							}
+						};
 					}
-				};
+					FileRequestType::GetFileRequest(cid) => {
+						self.dht_swarm.0.behaviour_mut()
+							.request_response
+							.send_response(channel, FileResponse("response msg".to_owned()))
+							.expect("Faild to send response");
+
+						println!("Get file request: {}", cid);
+					}
+				}
 			}
 			RequestResponseMessage::Response { response, request_id } => {
 				println!("{:?}, {:?}", response, request_id);
