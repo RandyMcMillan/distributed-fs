@@ -3,18 +3,23 @@ use libp2p::PeerId;
 use libp2p::kad::record::Key;
 use libp2p::mdns::MdnsEvent;
 use libp2p::swarm::SwarmEvent;
+use std::path::Path;
+use std::fs;
 use libp2p::request_response::{
 	RequestResponseEvent,
 	RequestResponseMessage
 };
 use tokio::sync::{mpsc, broadcast};
 use secp256k1::{Secp256k1, Message};
+use std::io::BufReader;
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
 use tonic::Code;
 use std::str;
 use std::str::FromStr;
 use futures::stream::StreamExt;
+use std::io::Read;
+
 
 use crate::dht::Dht;
 use crate::api;
@@ -202,7 +207,7 @@ impl ApiHandler {
 					FileRequestType::ProvideRequest(key) => {
 						self.dht_swarm.0.behaviour_mut()
 							.request_response
-							.send_response(channel, FileResponse("response msg".to_owned()))
+							.send_response(channel, FileResponse(Vec::new()))
 							.expect("Faild to send response");
 
 						let k = Key::from(key.as_bytes().to_vec());
@@ -231,12 +236,27 @@ impl ApiHandler {
 						};
 					}
 					FileRequestType::GetFileRequest(cid) => {
+						let location = format!("./cache/{}", cid);
+
+						let contents = {
+							if Path::new(&location).exists() {
+								let f = fs::File::open(&location).unwrap();
+								let mut reader = BufReader::new(f);
+								let mut buffer = Vec::new();
+								
+								reader.read_to_end(&mut buffer).unwrap();
+
+								buffer
+							} else {
+								Vec::new()
+							}
+						};
+
 						self.dht_swarm.0.behaviour_mut()
 							.request_response
-							.send_response(channel, FileResponse("response msg".to_owned()))
+							.send_response(channel, FileResponse(contents))
 							.expect("Faild to send response");
 
-						println!("Get file request: {}", cid);
 					}
 				}
 			}

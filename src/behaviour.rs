@@ -116,7 +116,7 @@ pub enum FileRequestType {
 pub struct FileRequest(pub FileRequestType);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileResponse(pub String);
+pub struct FileResponse(pub Vec<u8>);
 
 impl ProtocolName for FileExchangeProtocol {
 	fn protocol_name(&self) -> &[u8] {
@@ -163,7 +163,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
 
-		Ok(FileResponse(String::from_utf8(vec).unwrap()))
+		Ok(FileResponse(vec))
 	}
 
 	async fn write_request<T>(
