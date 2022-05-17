@@ -25,21 +25,21 @@ use crate::service::{
 };
 use crate::entry::{Entry, Children};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DhtGetRecordRequest {
 	pub signature: String,
 	pub name: String,
 	pub public_key: PublicKey
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DhtPutRecordRequest {
         pub public_key: PublicKey,
 	pub entry: ApiEntry,
 	pub signature: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DhtRequestType {
 	GetRecord(DhtGetRecordRequest),
 	PutRecord(DhtPutRecordRequest),
@@ -166,11 +166,12 @@ impl Service for MyApi {
 			name: request.name.to_owned()
 		});
 		
-		self.mpsc_sender.send(dht_request).await.unwrap();
+		self.mpsc_sender.send(dht_request.clone()).await.unwrap();
 		match self.broadcast_receiver.lock().await.recv().await {
 			Ok(dht_response) => match dht_response {
 				DhtResponseType::GetRecord(dht_get_response) => {
 					if let Some((code, message)) = dht_get_response.error {
+						println!("{}\n{:?}", message, dht_request);
 						return Err(Status::new(code, message));
 					}
 

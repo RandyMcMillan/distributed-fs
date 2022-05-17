@@ -28,7 +28,8 @@ use crate::behaviour::{
 	OutEvent,
 	FileResponse,
 	FileRequest,
-	FileRequestType
+	FileRequestType,
+	FileResponseType
 };
 use crate::api::{
 	DhtGetRecordRequest,
@@ -207,7 +208,9 @@ impl ApiHandler {
 					FileRequestType::ProvideRequest(key) => {
 						self.dht_swarm.0.behaviour_mut()
 							.request_response
-							.send_response(channel, FileResponse(Vec::new()))
+							.send_response(channel, 
+								FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned()))
+							)
 							.expect("Faild to send response");
 
 						let k = Key::from(key.as_bytes().to_vec());
@@ -254,14 +257,24 @@ impl ApiHandler {
 
 						self.dht_swarm.0.behaviour_mut()
 							.request_response
-							.send_response(channel, FileResponse(contents))
+							.send_response(channel, 
+								FileResponse(FileResponseType::GetFileResponse(contents))
+							)
 							.expect("Faild to send response");
-
 					}
 				}
 			}
-			RequestResponseMessage::Response { response, request_id } => {
-				println!("{:?}, {:?}", response, request_id);
+			RequestResponseMessage::Response { response, .. } => {
+				let FileResponse(response) = response;
+
+				match response {
+					FileResponseType::GetFileResponse(_content) => {
+
+					},
+					FileResponseType::ProvideResponse(msg) => {
+						println!("Start providing response: {}", msg);
+					}
+				}
 			}
 		};
 

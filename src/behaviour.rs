@@ -115,8 +115,14 @@ pub enum FileRequestType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileRequest(pub FileRequestType);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileResponse(pub Vec<u8>);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FileResponseType {
+	GetFileResponse(Vec<u8>),
+	ProvideResponse(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileResponse(pub FileResponseType);
 
 impl ProtocolName for FileExchangeProtocol {
 	fn protocol_name(&self) -> &[u8] {
@@ -163,7 +169,9 @@ impl RequestResponseCodec for FileExchangeCodec {
 			return Err(io::ErrorKind::UnexpectedEof.into());
 		}
 
-		Ok(FileResponse(vec))
+		let req: FileResponse = serde_json::from_str(&str::from_utf8(&vec).unwrap()).unwrap();
+
+		Ok(req)
 	}
 
 	async fn write_request<T>(
@@ -187,11 +195,13 @@ impl RequestResponseCodec for FileExchangeCodec {
 		&mut self,
 		_: &FileExchangeProtocol,
 		io: &mut T,
-		FileResponse(data): FileResponse,
+		FileResponse(d): FileResponse,
 	) -> io::Result<()>
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
+		let data = serde_json::to_vec(&d).unwrap();
+		
 		write_length_prefixed(io, data).await?;
 		io.close().await?;
 
