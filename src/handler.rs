@@ -29,7 +29,8 @@ use crate::behaviour::{
 	FileResponse,
 	FileRequest,
 	FileRequestType,
-	FileResponseType
+	FileResponseType,
+	GetFileResponse
 };
 use crate::api::{
 	DhtGetRecordRequest,
@@ -239,9 +240,9 @@ impl ApiHandler {
 						};
 					}
 					FileRequestType::GetFileRequest(cid) => {
-						let location = format!("./cache/{}", cid);
+						let location = format!("./cache/{}", cid.clone());
 
-						let contents = {
+						let content = {
 							if Path::new(&location).exists() {
 								let f = fs::File::open(&location).unwrap();
 								let mut reader = BufReader::new(f);
@@ -258,7 +259,10 @@ impl ApiHandler {
 						self.dht_swarm.0.behaviour_mut()
 							.request_response
 							.send_response(channel, 
-								FileResponse(FileResponseType::GetFileResponse(contents))
+								FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
+									content,
+									cid
+								}))
 							)
 							.expect("Faild to send response");
 					}
@@ -268,8 +272,16 @@ impl ApiHandler {
 				let FileResponse(response) = response;
 
 				match response {
-					FileResponseType::GetFileResponse(_content) => {
+					FileResponseType::GetFileResponse(GetFileResponse { content, cid }) => {
+						let location = format!("./cache/{}", cid);
+						let path: &Path = Path::new(&location);
 
+						match fs::write(path, content) {
+							Err(error) => {
+								eprintln!("Error while writing file: {:?}", error);
+							},
+							_ => {}
+						}
 					},
 					FileResponseType::ProvideResponse(msg) => {
 						println!("Start providing response: {}", msg);

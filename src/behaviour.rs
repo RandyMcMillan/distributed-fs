@@ -116,8 +116,14 @@ pub enum FileRequestType {
 pub struct FileRequest(pub FileRequestType);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GetFileResponse {
+	pub content: Vec<u8>,
+	pub cid: String
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileResponseType {
-	GetFileResponse(Vec<u8>),
+	GetFileResponse(GetFileResponse),
 	ProvideResponse(String),
 }
 
