@@ -69,7 +69,6 @@ pub struct MyApi {
 	pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>
 }
 
-
 #[tonic::async_trait]
 impl Service for MyApi {
         async fn put(

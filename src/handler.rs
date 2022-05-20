@@ -17,6 +17,7 @@ use secp256k1::ecdsa::Signature;
 use tonic::Code;
 use std::str;
 use std::str::FromStr;
+use std::collections::HashMap;
 use futures::stream::StreamExt;
 use std::io::Read;
 
@@ -44,7 +45,8 @@ use crate::api::{
 pub struct ApiHandler {
 	mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
-	dht_swarm: Dht
+	dht_swarm: Dht,
+	ledgers: HashMap<PeerId, String>
 }
 
 impl ApiHandler {
@@ -58,7 +60,8 @@ impl ApiHandler {
 		Self {
 			mpsc_receiver_stream,
 			broadcast_sender,
-			dht_swarm
+			dht_swarm,
+			ledgers: Default::default()
 		}
 	}
 
@@ -74,6 +77,7 @@ impl ApiHandler {
 							for (peer_id, multiaddr) in list {
 								println!("discovered {:?}", peer_id);
 								self.dht_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+								self.ledgers.entry(peer_id).or_insert("p".to_owned());
 							}
 						}
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
@@ -81,11 +85,13 @@ impl ApiHandler {
 								println!("expired {:?}", peer_id);
 								self.dht_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
 									.expect("Error removing address");
+								self.ledgers.remove(&peer_id);
 							}
 						}
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
 							RequestResponseEvent::Message { message, peer },
 						)) => {
+							println!("{:?}, Ledgers: {:?}", peer, self.ledgers);
 							match self.handle_request_response(message, peer).await {
 								Err(error) => println!("{}", error),
 								_ => {}
@@ -97,11 +103,14 @@ impl ApiHandler {
 						_ => {}
 					}
 				}
-				data = self.mpsc_receiver_stream.next() => {
-					match self.handle_api_event(data.unwrap()).await {
-						Err(error) => println!("{}", error),
-						_ => {}
-					};
+				data = self.mpsc_receiver_stream.next() => match data {
+					Some(data) => {
+						match self.handle_api_event(data).await {
+							Err(error) => println!("{}", error),
+							_ => {}
+						};
+					}
+					_ => {}
 				}
 			}
 		}
