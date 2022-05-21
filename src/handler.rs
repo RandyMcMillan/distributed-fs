@@ -22,7 +22,7 @@ use futures::stream::StreamExt;
 use std::io::Read;
 
 
-use crate::dht::Dht;
+use crate::swarm::ManagedSwarm;
 use crate::api;
 use crate::entry::Entry;
 use crate::behaviour::{
@@ -45,22 +45,22 @@ use crate::api::{
 pub struct ApiHandler {
 	mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
-	dht_swarm: Dht,
-	ledgers: HashMap<PeerId, String>
+	managed_swarm: ManagedSwarm,
+	ledgers: HashMap<PeerId, u16>
 }
 
 impl ApiHandler {
 	pub fn new(
 		mpsc_receiver: mpsc::Receiver<DhtRequestType>, 
 		broadcast_sender: broadcast::Sender<DhtResponseType>,
-		dht_swarm: Dht
+		managed_swarm: ManagedSwarm
 	) -> Self {
 		let  mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
 
 		Self {
 			mpsc_receiver_stream,
 			broadcast_sender,
-			dht_swarm,
+			managed_swarm,
 			ledgers: Default::default()
 		}
 	}
@@ -68,7 +68,7 @@ impl ApiHandler {
 	pub async fn run(&mut self) {
 		loop {
 			tokio::select! {
-				event = self.dht_swarm.0.select_next_some() => {
+				event = self.managed_swarm.0.select_next_some() => {
 					match event {
 						SwarmEvent::NewListenAddr { address, .. } => {
 							println!("Listening on {:?}", address);
@@ -76,14 +76,14 @@ impl ApiHandler {
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
 							for (peer_id, multiaddr) in list {
 								println!("discovered {:?}", peer_id);
-								self.dht_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-								self.ledgers.entry(peer_id).or_insert("p".to_owned());
+								self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+								self.ledgers.entry(peer_id).or_insert(0);
 							}
 						}
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
 							for (peer_id, multiaddr) in list {
 								println!("expired {:?}", peer_id);
-								self.dht_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
+								self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
 									.expect("Error removing address");
 								self.ledgers.remove(&peer_id);
 							}
@@ -91,7 +91,7 @@ impl ApiHandler {
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
 							RequestResponseEvent::Message { message, peer },
 						)) => {
-							println!("{:?}, Ledgers: {:?}", peer, self.ledgers);
+							// println!("{:?}, Ledgers: {:?}", peer, self.ledgers);
 							match self.handle_request_response(message, peer).await {
 								Err(error) => println!("{}", error),
 								_ => {}
@@ -143,7 +143,7 @@ impl ApiHandler {
 					_ => {}
 				}
 
-				match self.dht_swarm.get(&key).await {
+				match self.managed_swarm.get(&key).await {
 					Ok(record) => {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
@@ -190,7 +190,7 @@ impl ApiHandler {
 					_ => {}
 				}
 
-				let res = match self.dht_swarm.put(Key::new(&key.clone()), value).await {
+				let res = match self.managed_swarm.put(Key::new(&key.clone()), value).await {
 					Ok(_) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
 						signature: Some(key),
 						error: None
@@ -216,7 +216,7 @@ impl ApiHandler {
 				let FileRequest(r) = request;
 				match r {
 					FileRequestType::ProvideRequest(key) => {
-						self.dht_swarm.0.behaviour_mut()
+						self.managed_swarm.0.behaviour_mut()
 							.request_response
 							.send_response(channel, 
 								FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned()))
@@ -225,12 +225,12 @@ impl ApiHandler {
 
 						let k = Key::from(key.as_bytes().to_vec());
 
-						match self.dht_swarm.start_providing(k.clone()).await {
+						match self.managed_swarm.start_providing(k.clone()).await {
 							Err(error) => return Err(error),
 							_ => {}
 						};
 
-						match self.dht_swarm.get(&k).await {
+						match self.managed_swarm.get(&k).await {
 							Ok(record) => {
 								let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 								println!("{:#?}", entry);
@@ -238,7 +238,7 @@ impl ApiHandler {
 								if entry.metadata.children.len() != 0 {
 									let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
 
-									self.dht_swarm.0.behaviour_mut()
+									self.managed_swarm.0.behaviour_mut()
 										.request_response
 										.send_request(&peer, FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned())));
 								}
@@ -265,7 +265,7 @@ impl ApiHandler {
 							}
 						};
 
-						self.dht_swarm.0.behaviour_mut()
+						self.managed_swarm.0.behaviour_mut()
 							.request_response
 							.send_response(channel, 
 								FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
@@ -284,6 +284,10 @@ impl ApiHandler {
 					FileResponseType::GetFileResponse(GetFileResponse { content, cid }) => {
 						let location = format!("./cache/{}", cid);
 						let path: &Path = Path::new(&location);
+
+                                                let s = self.ledgers.entry(peer).or_insert(0);
+                                                *s += 1u16;
+                                                println!("{:#?}", self.ledgers);
 
 						match fs::write(path, content) {
 							Err(error) => {

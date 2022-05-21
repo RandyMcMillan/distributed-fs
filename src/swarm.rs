@@ -1,6 +1,10 @@
 use libp2p::{
 	Swarm,
 	swarm::SwarmEvent,
+    development_transport, 
+    identity,
+    mdns::{Mdns, MdnsConfig},
+    PeerId, 
 };
 use libp2p::kad::{
 	Record, 
@@ -10,6 +14,10 @@ use libp2p::kad::{
 	record::Key
 };
 use futures::StreamExt;
+use libp2p::kad::record::store::MemoryStore;
+use libp2p::kad::Kademlia;
+use async_std::task;
+
 use crate::behaviour::{
 	MyBehaviour, 
 	OutEvent, 
@@ -17,10 +25,13 @@ use crate::behaviour::{
 	FileRequestType
 };
 
-pub struct Dht (pub Swarm<MyBehaviour>);
+pub struct ManagedSwarm (pub Swarm<MyBehaviour>);
 
-impl Dht {
-	pub fn new(swarm: Swarm<MyBehaviour>) -> Self {
+impl ManagedSwarm {
+	pub async fn new(addr: &str) -> Self {
+		let mut swarm = create_swarm().await;
+		swarm.listen_on(addr.parse().unwrap()).unwrap();
+
 		Self(swarm)
 	}
  
@@ -125,4 +136,22 @@ impl Dht {
 			_ => Err("Something went wrong".to_string())
 		}
 	}
+}
+
+async fn create_swarm() -> Swarm<MyBehaviour> {
+	let local_key = identity::Keypair::generate_ed25519();
+	let local_peer_id = PeerId::from(local_key.public());
+	println!("{:?}", local_peer_id);
+
+	let transport = development_transport(local_key).await.unwrap();
+
+	let store = MemoryStore::new(local_peer_id);
+        let kademlia = Kademlia::new(local_peer_id, store);
+        let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
+        let behaviour = MyBehaviour { 
+		kademlia, 
+		mdns, 
+		request_response: MyBehaviour::create_req_res()
+	};
+        Swarm::new(transport, behaviour, local_peer_id)
 }

@@ -1,13 +1,3 @@
-use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::Kademlia;
-use libp2p::{
-    development_transport, 
-    identity,
-    mdns::{Mdns, MdnsConfig},
-    PeerId, 
-    Swarm,
-};
-use async_std::task;
 use std::error::Error;
 use std::env;
 use secp256k1::rand::rngs::OsRng;
@@ -25,34 +15,15 @@ mod service {
 mod api;
 mod entry;
 mod behaviour;
-mod dht;
+mod swarm;
 mod handler;
 
-use behaviour::MyBehaviour;
-use dht::Dht;
+use swarm::ManagedSwarm;
 use api::{
 	MyApi,
 	DhtRequestType,
 	DhtResponseType
 };
-
-async fn create_swarm() -> Swarm<MyBehaviour> {
-	let local_key = identity::Keypair::generate_ed25519();
-	let local_peer_id = PeerId::from(local_key.public());
-	println!("{:?}", local_peer_id);
-
-	let transport = development_transport(local_key).await.unwrap();
-
-	let store = MemoryStore::new(local_peer_id);
-        let kademlia = Kademlia::new(local_peer_id, store);
-        let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
-        let behaviour = MyBehaviour { 
-		kademlia, 
-		mdns, 
-		request_response: MyBehaviour::create_req_res()
-	};
-        Swarm::new(transport, behaviour, local_peer_id)
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -73,15 +44,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		return Ok(());
 	}
 
-	let mut swarm = create_swarm().await;
-	swarm.listen_on("/ip4/192.168.0.248/tcp/0".parse()?)?;
-	let dht_swarm = Dht::new(swarm);
+	let managed_swarm = ManagedSwarm::new("/ip4/192.168.0.248/tcp/0").await;
 
 	let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
 	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<DhtResponseType>(32);
 
 	tokio::spawn(async move { 
-		let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, dht_swarm);
+		let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, managed_swarm);
 		h.run().await;
 	});
 
@@ -90,7 +59,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver))
 	};
 	let server = Server::builder().add_service(ServiceServer::new(api));
-	
 
 	let addr = args[2].parse().unwrap();
 	println!("Server listening on {}", addr);
