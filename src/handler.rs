@@ -175,6 +175,7 @@ impl ApiHandler {
 				let message = Message::from_hashed_data::<sha256::Hash>(
 					format!("{}/{}", pub_key.to_string(), entry.name).as_bytes()
 				);
+				println!("{:?}", message.len());
 
 				let entry = Entry::new(signature, public_key.to_string(), entry);
 				let value = serde_json::to_vec(&entry).unwrap();
