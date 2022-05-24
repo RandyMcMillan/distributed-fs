@@ -28,7 +28,7 @@ message ApiEntry {
 
 message GetRequest {
 	string location = 1;
-	string name = 2;	
+	string sig = 2;	
 	bool download = 3;
 }
 

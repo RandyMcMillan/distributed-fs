@@ -162,7 +162,7 @@ impl Service for MyApi {
 		let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
 			signature: request.location.to_owned(),
 			public_key,
-			name: request.name.to_owned()
+			name: request.sig.to_owned()
 		});
 		
 		self.mpsc_sender.send(dht_request.clone()).await.unwrap();

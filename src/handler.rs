@@ -125,23 +125,23 @@ impl ApiHandler {
 			}) => {
 				let (key, location, signature) = api::get_location_key(signature.clone()).unwrap();
 
-				let secp = Secp256k1::new();
-				let sig = Signature::from_str(&signature.clone()).unwrap();
-				let message = Message::from_hashed_data::<sha256::Hash>(
-					format!("{}/{}", public_key.to_string(), name).as_bytes()
-				);
+				// let secp = Secp256k1::new();
+				// let sig = Signature::from_str(&signature.clone()).unwrap();
+				// let message = Message::from_hashed_data::<sha256::Hash>(
+				// 	format!("{}/{}", public_key.to_string(), name).as_bytes()
+				// );
 
-				match secp.verify_ecdsa(&message, &sig, &public_key) {
-					Err(_error) => {
-						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-							entry: None,
-							error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
-							location: None
-						})).unwrap();
-						return Ok(());
-					}
-					_ => {}
-				}
+				// match secp.verify_ecdsa(&message, &sig, &public_key) {
+				// 	Err(_error) => {
+				// 		self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+				// 			entry: None,
+				// 			error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
+				// 			location: None
+				// 		})).unwrap();
+				// 		return Ok(());
+				// 	}
+				// 	_ => {}
+				// }
 
 				match self.managed_swarm.get(&key).await {
 					Ok(record) => {
@@ -175,7 +175,6 @@ impl ApiHandler {
 				let message = Message::from_hashed_data::<sha256::Hash>(
 					format!("{}/{}", pub_key.to_string(), entry.name).as_bytes()
 				);
-				println!("{:?}", message.len());
 
 				let entry = Entry::new(signature, public_key.to_string(), entry);
 				let value = serde_json::to_vec(&entry).unwrap();

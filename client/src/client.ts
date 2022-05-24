@@ -41,30 +41,12 @@ const clearDir = async (dir: string) => new Promise((res, rej) => {
 })
 
 const downloadFile = async () => {
-	const secp256k1 = require('secp256k1')
-
-	// const privKey = Uint8Array.from("3f9a803e135f1e3b36ac7f246ba5b56e164b42074ea1659b0e6d52eeb9950ea1")
-	// const privKey = Uint8Array.from(Buffer.from('3f9a803e135f1e3b36ac7f246ba5b56e164b42074ea1659b0e6d52eeb9950ea1', 'utf-8'))
-	const privKey = Uint8Array.from([63, 154, 128, 62, 19, 95, 30, 59, 54, 172, 127, 36, 107, 165, 181, 110, 22, 75, 66, 7, 78, 161, 101, 155, 14, 109, 82, 238, 185, 149, 14, 161])
-
-	let m = Buffer.from("e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/")
-	let msg = Buffer.from(createHash('sha256').update(m).digest('hex'))
-	console.log(msg.toString("ascii"))
-
-	// let hash = CryptoJS.SHA256(m);
-	// let buffer = Buffer.from(hash.toString(CryptoJS.enc.HEX), 'hex');
-	// let msg = new Uint8Array(buffer);
-	// console.log(msg, buffer.toString("hex"), privKey, hash)
-
-
-	const { signature: signed } = secp256k1.ecdsaSign(msg, privKey)
-
-	// console.log(Buffer.from(signed).toString("hex"))
+	const sig = "3044022028e705c9b59ac21d03c24cea212f79d3eea1454a0f8db443833dd4615da1af8e022066aeb1662949a47c39cca04d8a285c639dd432129e895e0358f1535829dc29a3";
 
 	const call = client.Get(
 		{
 			location: "e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/",
-			name: "Hello",
+			sig,
 			download: true
 		},
 		meta

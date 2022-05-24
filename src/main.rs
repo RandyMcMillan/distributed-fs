@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::env;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Secp256k1, Message};
+use secp256k1::{Secp256k1, Message, SecretKey};
 use secp256k1::hashes::sha256;
 // use secp256k1::ecdsa::Signature;
 use tonic::transport::Server;
@@ -39,8 +39,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 		println!("Public key: {}\nPrivate Key: {}", public_key.to_string(), secret_key.display_secret());
 		println!("Secret Key: {:?}", secret_key.secret_bytes());
 
-		let m1 = Message::from_hashed_data::<sha256::Hash>("e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/".as_bytes());
-		println!("{:?}", m1.len());
+		generate_signature(
+			"e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/".as_bytes(),
+			secret_key
+		);
 
 		return Ok(());
 	}
@@ -71,4 +73,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	server.serve(addr).await.unwrap();
 
 	Ok(())
+}
+
+fn generate_signature(msg: &[u8], secret_key: SecretKey) {
+	let secp = Secp256k1::new();
+	let message = Message::from_hashed_data::<sha256::Hash>(msg);
+	let sig = secp.sign_ecdsa(&message, &secret_key);
+
+	println!("Signature: {}", sig);
 }
