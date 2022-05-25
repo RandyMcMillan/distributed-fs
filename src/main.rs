@@ -3,11 +3,11 @@ use std::env;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Secp256k1, Message, SecretKey};
 use secp256k1::hashes::sha256;
-// use secp256k1::ecdsa::Signature;
 use tonic::transport::Server;
 use tokio::sync::{mpsc, broadcast};
 use tokio::sync::Mutex;
 use std::sync::Arc;
+use std::str::FromStr;
 use service::service_server::ServiceServer;
 
 mod service {
@@ -41,14 +41,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 		generate_signature(
 			"e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/".as_bytes(),
-			secret_key
+			"4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de"
 		);
 
 		return Ok(());
 	}
 
 	if args.len() < 3 {
-		println!("Provide server_addr");
+		println!("Provide server_addr 'cargo r - 1.1.1.1:0000'");
 		return Ok(());
 	}
 
@@ -75,7 +75,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 	Ok(())
 }
 
-fn generate_signature(msg: &[u8], secret_key: SecretKey) {
+fn generate_signature(msg: &[u8], secret_key: &str) {
+	let secret_key = SecretKey::from_str(secret_key).unwrap();
 	let secp = Secp256k1::new();
 	let message = Message::from_hashed_data::<sha256::Hash>(msg);
 	let sig = secp.sign_ecdsa(&message, &secret_key);

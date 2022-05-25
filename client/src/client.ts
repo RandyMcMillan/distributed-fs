@@ -41,7 +41,7 @@ const clearDir = async (dir: string) => new Promise((res, rej) => {
 })
 
 const downloadFile = async () => {
-	const sig = "3044022028e705c9b59ac21d03c24cea212f79d3eea1454a0f8db443833dd4615da1af8e022066aeb1662949a47c39cca04d8a285c639dd432129e895e0358f1535829dc29a3";
+	const sig = "3044022078cfbc1a9d1e63cf94ef52151f6a1e95101b27bde1b9abbaac1163ebdf363e5002204a17153ca42c8170dc0371bae8d38934cc21ae7f942fc2e6f02c7678affc0736";
 
 	const call = client.Get(
 		{

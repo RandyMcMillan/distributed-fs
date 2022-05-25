@@ -10,7 +10,7 @@ use libp2p::request_response::{
 	RequestResponseMessage
 };
 use tokio::sync::{mpsc, broadcast};
-use secp256k1::{Secp256k1, Message};
+use secp256k1::{Secp256k1, Message, SecretKey};
 use std::io::BufReader;
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
@@ -123,25 +123,28 @@ impl ApiHandler {
 				name,
 				public_key
 			}) => {
-				let (key, location, signature) = api::get_location_key(signature.clone()).unwrap();
+				let loc = signature.clone();
 
-				// let secp = Secp256k1::new();
-				// let sig = Signature::from_str(&signature.clone()).unwrap();
-				// let message = Message::from_hashed_data::<sha256::Hash>(
-				// 	format!("{}/{}", public_key.to_string(), name).as_bytes()
-				// );
+				let (key, location, _signature) = api::get_location_key(signature.clone()).unwrap();
 
-				// match secp.verify_ecdsa(&message, &sig, &public_key) {
-				// 	Err(_error) => {
-				// 		self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-				// 			entry: None,
-				// 			error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
-				// 			location: None
-				// 		})).unwrap();
-				// 		return Ok(());
-				// 	}
-				// 	_ => {}
-				// }
+				let secp = Secp256k1::new();
+				let sig = Signature::from_str(&name.clone()).unwrap();
+				let message = Message::from_hashed_data::<sha256::Hash>(loc.clone().as_bytes());
+
+				// let test_sig = secp.sign_ecdsa(&message, &SecretKey::from_str("4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de").unwrap());
+				// println!("MSG: {:?}\nSignature: {:?}\nLocation: {:?}\nExpected signature: {:?}", message, sig, loc, test_sig);
+
+				match secp.verify_ecdsa(&message, &sig, &public_key) {
+					Err(_error) => {
+						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+							entry: None,
+							error: Some((Code::Unauthenticated, "Invalid signature".to_string())),
+							location: None
+						})).unwrap();
+						return Ok(());
+					}
+					_ => {}
+				}
 
 				match self.managed_swarm.get(&key).await {
 					Ok(record) => {
