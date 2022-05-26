@@ -10,7 +10,7 @@ use libp2p::request_response::{
 	RequestResponseMessage
 };
 use tokio::sync::{mpsc, broadcast};
-use secp256k1::{Secp256k1, Message, SecretKey};
+use secp256k1::{Secp256k1, Message};
 use std::io::BufReader;
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
@@ -150,11 +150,27 @@ impl ApiHandler {
 					Ok(record) => {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-							entry: Some(entry),
-							error: None,
-							location: Some(location)
-						})).unwrap();
+						match self.managed_swarm.get_providers(key).await {
+							Ok(peers) => {
+								if peers.len() != 0  && entry.metadata.children.len() != 0 {
+									let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+
+									// println!("{:?}, {:?}", peers, entry.metadata);
+									println!("Got here");
+									self.managed_swarm.0.behaviour_mut()
+										.request_response
+										.send_request(&peers[0], FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned())));
+								}
+
+								self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+									entry: Some(entry),
+									error: None,
+									location: Some(location)
+								})).unwrap();
+							}
+							Err(error) => eprint!("{}", error)
+						};
+
 					}
 					Err(error) => {
 						self.broadcast_sender.send(DhtResponseType::GetRecord(DhtGetRecordResponse {
@@ -219,19 +235,20 @@ impl ApiHandler {
 				let FileRequest(r) = request;
 				match r {
 					FileRequestType::ProvideRequest(key) => {
-						self.managed_swarm.0.behaviour_mut()
-							.request_response
-							.send_response(channel, 
-								FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned()))
-							)
-							.expect("Faild to send response");
-
 						let k = Key::from(key.as_bytes().to_vec());
 
 						match self.managed_swarm.start_providing(k.clone()).await {
 							Err(error) => return Err(error),
 							_ => {}
 						};
+
+						self.managed_swarm.0.behaviour_mut()
+							.request_response
+							.send_response(channel, 
+								FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned()))
+							)
+							.unwrap();
+							// .expect("Faild to send response");
 
 						match self.managed_swarm.get(&k).await {
 							Ok(record) => {
@@ -252,10 +269,12 @@ impl ApiHandler {
 						};
 					}
 					FileRequestType::GetFileRequest(cid) => {
+						println!("Get File Request: {:?}", cid);
 						let location = format!("./cache/{}", cid.clone());
 
 						let content = {
 							if Path::new(&location).exists() {
+								println!("exists");
 								let f = fs::File::open(&location).unwrap();
 								let mut reader = BufReader::new(f);
 								let mut buffer = Vec::new();
@@ -264,9 +283,11 @@ impl ApiHandler {
 
 								buffer
 							} else {
+								println!("doesn't exists");
 								Vec::new()
 							}
 						};
+						
 
 						self.managed_swarm.0.behaviour_mut()
 							.request_response
@@ -282,9 +303,11 @@ impl ApiHandler {
 			}
 			RequestResponseMessage::Response { response, .. } => {
 				let FileResponse(response) = response;
+				println!("Response\n{:?}", response);
 
 				match response {
 					FileResponseType::GetFileResponse(GetFileResponse { content, cid }) => {
+						println!("GetFileResponse: {}, content: {:?}", cid.clone(), content);
 						let location = format!("./cache/{}", cid);
 						let path: &Path = Path::new(&location);
 

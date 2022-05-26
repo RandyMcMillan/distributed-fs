@@ -206,6 +206,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
+		println!("{:?}", d);
 		let data = serde_json::to_vec(&d).unwrap();
 		
 		write_length_prefixed(io, data).await?;

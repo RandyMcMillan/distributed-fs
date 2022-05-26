@@ -131,7 +131,26 @@ impl ManagedSwarm {
 			QueryResult::StartProviding(r) => match r {
 				Ok(_r) => Ok(key),
 				Err(_error) => Err("Error on StartProviding".to_string())
+			},
+			_ => Err("Something went wrong".to_string())
+		}
+	}
 
+	pub async fn get_providers(&mut self, key: Key) -> Result<Vec<PeerId>, String> {
+		let behaviour = self.0.behaviour_mut();
+
+		behaviour.kademlia.get_providers(key);
+
+		let res = loop {
+			if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
+				break result;
+			}
+		};
+
+		match res {
+			QueryResult::GetProviders(r) => match r {
+				Ok(providers) => Ok(providers.closest_peers),
+				Err(_error) => Err("Error on GetProviders".to_string())
 			},
 			_ => Err("Something went wrong".to_string())
 		}
