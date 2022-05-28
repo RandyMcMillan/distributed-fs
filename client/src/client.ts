@@ -160,5 +160,5 @@ const uploadDirectory = async (path: string) => {
 }
 
 uploadDirectory("../test/Hello").then(() => {
-	downloadFile()
+	// downloadFile()
 })

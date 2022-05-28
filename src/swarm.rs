@@ -1,10 +1,16 @@
 use libp2p::{
 	Swarm,
 	swarm::SwarmEvent,
-    development_transport, 
-    identity,
-    mdns::{Mdns, MdnsConfig},
-    PeerId, 
+	development_transport, 
+	identity,
+	mdns::{Mdns, MdnsConfig},
+	PeerId, 
+};
+use libp2p::request_response::{
+	ResponseChannel,
+	RequestId,
+	RequestResponseEvent,
+	RequestResponseMessage
 };
 use libp2p::kad::{
 	Record, 
@@ -17,12 +23,14 @@ use futures::StreamExt;
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::Kademlia;
 use async_std::task;
+use futures::channel::{oneshot};
 
 use crate::behaviour::{
 	MyBehaviour, 
 	OutEvent, 
 	FileRequest, 
-	FileRequestType
+	FileRequestType,
+	FileResponse
 };
 
 pub struct ManagedSwarm (pub Swarm<MyBehaviour>);
@@ -63,7 +71,6 @@ impl ManagedSwarm {
 			expires: None,
 		};
 		
-
 		let behaviour = self.0.behaviour_mut();
 		behaviour.kademlia.put_record(record.clone(), Quorum::One).expect("Failed to put record locally");
 
@@ -77,35 +84,35 @@ impl ManagedSwarm {
 			QueryResult::PutRecord(d) => {
 				match d {
 					Ok(dd) => {
-						let behaviour = self.0.behaviour_mut();
+						// let behaviour = self.0.behaviour_mut();
 
-						behaviour.kademlia.get_providers(dd.key.clone());
+						// behaviour.kademlia.get_providers(dd.key.clone());
 
-						let res = loop {
-							if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
-								break result;
-							}
-						};
+						// let res = loop {
+						// 	if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
+						// 		break result;
+						// 	}
+						// };
 
-						let peer_id = match res {
-							QueryResult::GetProviders(p) => {
-								let p = p.unwrap();
-								if p.closest_peers.len() == 0 {
-									return Ok(dd.key);
-								}
+						// let peer_id = match res {
+						// 	QueryResult::GetProviders(p) => {
+						// 		let p = p.unwrap();
+						// 		if p.closest_peers.len() == 0 {
+						// 			return Ok(dd.key);
+						// 		}
 
-								p.closest_peers[0]
-							},
-							_ => {
-								return Ok(dd.key.clone());
-							}
-						};
+						// 		p.closest_peers[0]
+						// 	},
+						// 	_ => {
+						// 		return Ok(dd.key.clone());
+						// 	}
+						// };
 						
-						let behaviour = self.0.behaviour_mut();
-						let key = String::from_utf8(dd.key.clone().to_vec()).unwrap();
-						behaviour
-							.request_response
-							.send_request(&peer_id, FileRequest(FileRequestType::ProvideRequest(key)));
+						// let behaviour = self.0.behaviour_mut();
+						// let key = String::from_utf8(dd.key.clone().to_vec()).unwrap();
+						// behaviour
+						// 	.request_response
+						// 	.send_request(&peer_id, FileRequest(FileRequestType::ProvideRequest(key)));
 
 						Ok(dd.key)
 					},
@@ -154,6 +161,39 @@ impl ManagedSwarm {
 			},
 			_ => Err("Something went wrong".to_string())
 		}
+	}
+
+	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
+		let behaviour = self.0.behaviour_mut();
+
+		behaviour
+			.request_response
+			.send_request(&peer, request);
+
+		let res = loop {
+			if let SwarmEvent::Behaviour(
+				OutEvent::RequestResponse(
+					RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
+				)
+			) = self.0.select_next_some().await {
+				break response;
+			}
+		};
+
+		Ok(res)
+	}
+
+	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
+		let behaviour = self.0.behaviour_mut();
+
+		match behaviour
+			.request_response
+			.send_response(channel, response) {
+				Ok(()) => {},
+				Err(error) => println!("Error while sending res: {:?}", error)
+		};
+
+		Ok(())
 	}
 }
 
