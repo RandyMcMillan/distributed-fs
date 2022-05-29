@@ -22,8 +22,8 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use futures::stream::StreamExt;
 use std::io::Read;
-// use tokio::sync::oneshot;
-use futures::channel::{oneshot};
+use tokio::sync::oneshot;
+// use futures::channel::{oneshot};
 
 
 use crate::swarm::ManagedSwarm;
@@ -83,7 +83,7 @@ impl ApiHandler {
 						}
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
 							for (peer_id, multiaddr) in list {
-								println!("discovered {:?}", peer_id);
+								// println!("discovered {:?}", peer_id);
 								self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
 
 								self.ledgers.entry(peer_id).or_insert(0);
@@ -100,7 +100,7 @@ impl ApiHandler {
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
 							RequestResponseEvent::Message { message, peer },
 						)) => {
-							// println!("{:?}, Ledgers: {:?}", peer, self.ledgers);
+							// println!("request response event:{:?}",message);
 							match self.handle_request_response(message, peer).await {
 								Err(error) => println!("{}", error),
 								_ => {}
@@ -162,7 +162,7 @@ impl ApiHandler {
 						match self.managed_swarm.get_providers(key).await {
 							Ok(peers) => {
 								if peers.len() != 0  && entry.metadata.children.len() != 0 {
-									let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+									let _get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
 
 									// println!("{:?}, {:?}", peers, entry.metadata);
 									// println!("Got here");
@@ -228,7 +228,7 @@ impl ApiHandler {
 								peers[0], 
 								FileRequest(FileRequestType::ProvideRequest(key.clone()))
 							).await {
-								Ok(res) => println!("Start provide res: {:?}", res),
+								Ok(_res) => {},
 								Err(error) => eprint!("Start providing err: {}", error)
 							};
 						}
@@ -258,7 +258,6 @@ impl ApiHandler {
 		match message {
 			RequestResponseMessage::Request { request, channel, .. } => {
 				let FileRequest(r) = request;
-				// println!("GOT request: {:?}", r);
 				match r {
 					FileRequestType::ProvideRequest(key) => {
 						let k = Key::from(key.as_bytes().to_vec());
@@ -338,8 +337,9 @@ impl ApiHandler {
 			RequestResponseMessage::Response { response, request_id } => {
 				let FileResponse(response) = response;
 
-				// let s = self.pending_request.remove(&request_id).unwrap();
-				// s.send(Ok("test".to_owned())).unwrap();
+				// println!("Got response: {:?}", self.pending_request);
+				let s = self.pending_request.remove(&request_id).unwrap();
+				s.send(Ok("test".to_owned())).unwrap();
 
 				match response {
 					FileResponseType::GetFileResponse(GetFileResponse { content, cid }) => {
@@ -348,7 +348,7 @@ impl ApiHandler {
 
                                                 let s = self.ledgers.entry(peer).or_insert(0);
                                                 *s += 1u16;
-                                                println!("{:#?}", self.ledgers);
+                                                // println!("{:#?}", self.ledgers);
 
 						match fs::write(path, content) {
 							Err(error) => {
@@ -368,19 +368,25 @@ impl ApiHandler {
 	}
 
 	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
-		let res = match self.managed_swarm.send_request(peer, request).await {
-			Ok(res) => res,
-			Err(error) => return Err(error)
-		};
 
-		Ok(res)
+		let (sender, receiver) = oneshot::channel();
+		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
+		self.pending_request.insert(request_id, sender);
+
+		tokio::spawn(async {
+			let res = receiver.await.unwrap();
+			println!("receiver: {:?}", res);
+		});
+		// Ok(res)
+		Err("test".to_owned())
 	}
 
 	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
-		self
-			.managed_swarm
-			.send_response(response, channel)
-			.await
+		let behaviour=  self.managed_swarm.0.behaviour_mut();
+
+		behaviour
+			.request_response
+			.send_response(channel, response)
 			.unwrap();
 
 		Ok(())

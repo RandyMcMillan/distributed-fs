@@ -176,7 +176,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 		}
 
 		let req: FileResponse = serde_json::from_str(&str::from_utf8(&vec).unwrap()).unwrap();
-		println!("Read response, {:?}", req);
+		// println!("Read response, {:?}", req);
 
 		Ok(req)
 	}
@@ -190,7 +190,7 @@ impl RequestResponseCodec for FileExchangeCodec {
 	where
 		T: AsyncWrite + Unpin + Send,
 	{
-		println!("Write request: {:?}", d);
+		// println!("Write request: {:?}", d);
 		let data = serde_json::to_vec(&d).unwrap();
 
 		write_length_prefixed(io, data).await?;

@@ -6,12 +6,7 @@ use libp2p::{
 	mdns::{Mdns, MdnsConfig},
 	PeerId, 
 };
-use libp2p::request_response::{
-	ResponseChannel,
-	RequestId,
-	RequestResponseEvent,
-	RequestResponseMessage
-};
+use libp2p::request_response::RequestId;
 use libp2p::kad::{
 	Record, 
 	Quorum,
@@ -23,14 +18,11 @@ use futures::StreamExt;
 use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::Kademlia;
 use async_std::task;
-use futures::channel::{oneshot};
 
 use crate::behaviour::{
 	MyBehaviour, 
 	OutEvent, 
 	FileRequest, 
-	FileRequestType,
-	FileResponse
 };
 
 pub struct ManagedSwarm (pub Swarm<MyBehaviour>);
@@ -163,37 +155,26 @@ impl ManagedSwarm {
 		}
 	}
 
-	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
+	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<RequestId, String> {
 		let behaviour = self.0.behaviour_mut();
 
-		behaviour
+		let req_id = behaviour
 			.request_response
 			.send_request(&peer, request);
 
-		let res = loop {
-			if let SwarmEvent::Behaviour(
-				OutEvent::RequestResponse(
-					RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
-				)
-			) = self.0.select_next_some().await {
-				break response;
-			}
-		};
+		// let res = loop {
+		// 	if let SwarmEvent::Behaviour(
+		// 		OutEvent::RequestResponse(
+		// 			RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
+		// 		)
+		// 	) = self.0.select_next_some().await {
+		// 		break response;
+		// 	}
+		// };
+		// println!("Got res: {:?}", res);
 
-		Ok(res)
-	}
-
-	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
-		let behaviour = self.0.behaviour_mut();
-
-		match behaviour
-			.request_response
-			.send_response(channel, response) {
-				Ok(()) => {},
-				Err(error) => println!("Error while sending res: {:?}", error)
-		};
-
-		Ok(())
+		// Ok(res)
+		Ok(req_id)
 	}
 }
 
