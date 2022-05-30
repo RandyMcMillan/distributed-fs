@@ -6,7 +6,11 @@ use libp2p::{
 	mdns::{Mdns, MdnsConfig},
 	PeerId, 
 };
-use libp2p::request_response::RequestId;
+use libp2p::request_response::{
+	RequestId,
+	RequestResponseEvent,
+	RequestResponseMessage
+};
 use libp2p::kad::{
 	Record, 
 	Quorum,
@@ -162,16 +166,16 @@ impl ManagedSwarm {
 			.request_response
 			.send_request(&peer, request);
 
-		// let res = loop {
-		// 	if let SwarmEvent::Behaviour(
-		// 		OutEvent::RequestResponse(
-		// 			RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
-		// 		)
-		// 	) = self.0.select_next_some().await {
-		// 		break response;
-		// 	}
-		// };
-		// println!("Got res: {:?}", res);
+		let res = loop {
+			if let SwarmEvent::Behaviour(
+				OutEvent::RequestResponse(
+					RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
+				)
+			) = self.0.select_next_some().await {
+				break response;
+			}
+		};
+		println!("Got res: {:?}", res);
 
 		// Ok(res)
 		Ok(req_id)

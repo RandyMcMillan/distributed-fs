@@ -373,10 +373,10 @@ impl ApiHandler {
 		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
 		self.pending_request.insert(request_id, sender);
 
-		tokio::spawn(async {
-			let res = receiver.await.unwrap();
-			println!("receiver: {:?}", res);
-		});
+		// tokio::spawn(async {
+		// 	let res = receiver.await.unwrap();
+		// 	println!("receiver: {:?}", res);
+		// });
 		// Ok(res)
 		Err("test".to_owned())
 	}
@@ -390,5 +390,67 @@ impl ApiHandler {
 			.unwrap();
 
 		Ok(())
+	}
+}
+
+struct EventLoop {
+	managed_swarm: ManagedSwarm,
+}
+
+impl EventLoop {
+	pub fn new(
+		managed_swarm: ManagedSwarm
+	) -> Self {
+		Self {
+			managed_swarm,
+		}
+	}
+
+	pub async fn run(mut self) {
+		loop {
+			tokio::select! {
+				event = self.managed_swarm.0.select_next_some() => {
+					self.handle_event(event.expect("Swarm stream to be infinite.")).await;
+				},
+			}
+		}
+	}
+
+	pub async fn handle_event(event: SwarmEvent) {
+		match event {
+			SwarmEvent::NewListenAddr { address, .. } => {
+				println!("Listening on {:?}", address);
+			}
+			SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
+				for (peer_id, multiaddr) in list {
+					// println!("discovered {:?}", peer_id);
+					self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+
+					self.ledgers.entry(peer_id).or_insert(0);
+				}
+			}
+			SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
+				for (peer_id, multiaddr) in list {
+					println!("expired {:?}", peer_id);
+					self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
+						.expect("Error removing address");
+					self.ledgers.remove(&peer_id);
+				}
+			}
+			SwarmEvent::Behaviour(OutEvent::RequestResponse(
+				RequestResponseEvent::Message { message, peer },
+			)) => {
+				// println!("request response event:{:?}",message);
+				match self.handle_request_response(message, peer).await {
+					Err(error) => println!("{}", error),
+					_ => {}
+				}; 
+			}
+			SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
+				// println!("OTHER KAD: \n{:?}", e);
+			}
+			_ => {}
+		}
+
 	}
 }
