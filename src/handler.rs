@@ -17,14 +17,13 @@ use std::io::BufReader;
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
 use tonic::Code;
-use std::{str, error::Error};
+use std::{str, error::Error, io};
 use std::str::FromStr;
 use std::collections::HashMap;
 use futures::stream::StreamExt;
 use std::io::Read;
 use tokio::sync::oneshot;
-// use futures::channel::{oneshot};
-
+use libp2p_core::either::EitherError;
 
 use crate::swarm::ManagedSwarm;
 use crate::api;
@@ -50,8 +49,6 @@ pub struct ApiHandler {
 	mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
 	managed_swarm: ManagedSwarm,
-	ledgers: HashMap<PeerId, u16>,
-	pending_request: HashMap<RequestId, oneshot::Sender<Result<String, Box<dyn Error + Send>>>>,
 }
 
 impl ApiHandler {
@@ -62,13 +59,12 @@ impl ApiHandler {
 	) -> Self {
 		let  mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
 
+		let event_loop = EventLoop::new(managed_swarm);
 
 		Self {
 			mpsc_receiver_stream,
 			broadcast_sender,
 			managed_swarm,
-			ledgers: Default::default(),
-			pending_request: Default::default()
 		}
 	}
 
@@ -76,42 +72,42 @@ impl ApiHandler {
 
 		loop {
 			tokio::select! {
-				event = self.managed_swarm.0.select_next_some() => {
-					match event {
-						SwarmEvent::NewListenAddr { address, .. } => {
-							println!("Listening on {:?}", address);
-						}
-						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-							for (peer_id, multiaddr) in list {
-								// println!("discovered {:?}", peer_id);
-								self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+				// event = self.managed_swarm.0.select_next_some() => {
+				// 	match event {
+				// 		SwarmEvent::NewListenAddr { address, .. } => {
+				// 			println!("Listening on {:?}", address);
+				// 		}
+				// 		SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
+				// 			for (peer_id, multiaddr) in list {
+				// 				// println!("discovered {:?}", peer_id);
+				// 				self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
 
-								self.ledgers.entry(peer_id).or_insert(0);
-							}
-						}
-						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
-							for (peer_id, multiaddr) in list {
-								println!("expired {:?}", peer_id);
-								self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
-									.expect("Error removing address");
-								self.ledgers.remove(&peer_id);
-							}
-						}
-						SwarmEvent::Behaviour(OutEvent::RequestResponse(
-							RequestResponseEvent::Message { message, peer },
-						)) => {
-							// println!("request response event:{:?}",message);
-							match self.handle_request_response(message, peer).await {
-								Err(error) => println!("{}", error),
-								_ => {}
-							}; 
-						}
-						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
-							// println!("OTHER KAD: \n{:?}", e);
-						}
-						_ => {}
-					}
-				}
+				// 				self.ledgers.entry(peer_id).or_insert(0);
+				// 			}
+				// 		}
+				// 		SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
+				// 			for (peer_id, multiaddr) in list {
+				// 				println!("expired {:?}", peer_id);
+				// 				self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
+				// 					.expect("Error removing address");
+				// 				self.ledgers.remove(&peer_id);
+				// 			}
+				// 		}
+				// 		SwarmEvent::Behaviour(OutEvent::RequestResponse(
+				// 			RequestResponseEvent::Message { message, peer },
+				// 		)) => {
+				// 			// println!("request response event:{:?}",message);
+				// 			match self.handle_request_response(message, peer).await {
+				// 				Err(error) => println!("{}", error),
+				// 				_ => {}
+				// 			}; 
+				// 		}
+				// 		SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
+				// 			// println!("OTHER KAD: \n{:?}", e);
+				// 		}
+				// 		_ => {}
+				// 	}
+				// }
 				data = self.mpsc_receiver_stream.next() => match data {
 					Some(data) => {
 						match self.handle_api_event(data).await {
@@ -254,6 +250,100 @@ impl ApiHandler {
 		Ok(())
 	}
 
+	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
+
+		// let (sender, receiver) = oneshot::channel();
+		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
+
+		// tokio::spawn(async {
+		// 	let res = receiver.await.unwrap();
+		// 	println!("receiver: {:?}", res);
+		// });
+		// Ok(res)
+		Err("test".to_owned())
+	}
+
+	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
+		let behaviour=  self.managed_swarm.0.behaviour_mut();
+
+		behaviour
+			.request_response
+			.send_response(channel, response)
+			.unwrap();
+
+		Ok(())
+	}
+}
+
+struct EventLoop {
+	managed_swarm: ManagedSwarm,
+	ledgers: HashMap<PeerId, u16>,
+	pending_requests: HashMap<RequestId, oneshot::Sender<Result<String, Box<dyn Error + Send>>>>,
+}
+
+impl EventLoop {
+	pub fn new(
+		managed_swarm: ManagedSwarm
+	) -> Self {
+		Self {
+			managed_swarm,
+			ledgers: Default::default(),
+			pending_requests: Default::default()
+		}
+	}
+
+	pub async fn run(mut self) {
+		loop {
+			tokio::select! {
+				event = self.managed_swarm.0.select_next_some() => {
+					// self.handle_event(event).await;
+					match event {
+						SwarmEvent::NewListenAddr { address, .. } => {
+							println!("Listening on {:?}", address);
+						}
+						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
+							for (peer_id, multiaddr) in list {
+								// println!("discovered {:?}", peer_id);
+								self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
+
+								self.ledgers.entry(peer_id).or_insert(0);
+							}
+						}
+						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
+							for (peer_id, multiaddr) in list {
+								println!("expired {:?}", peer_id);
+								self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
+									.expect("Error removing address");
+								self.ledgers.remove(&peer_id);
+							}
+						}
+						SwarmEvent::Behaviour(OutEvent::RequestResponse(
+							RequestResponseEvent::Message { message, peer },
+						)) => {
+							// println!("request response event:{:?}",message);
+							self.handle_request_response(message, peer);
+						}
+						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
+							// println!("OTHER KAD: \n{:?}", e);
+						}
+						_ => {}
+					};
+				},
+			}
+		}
+	}
+
+	// pub async fn handle_event(
+	// 	&mut self,
+	// 	event: SwarmEvent<
+	// 		OutEvent,
+	// 		EitherError<EitherError<io::Error, String>, String>
+	// 	>,
+	// ) -> Result<(), String> {
+
+	// 	Ok(())
+	// }
+
 	pub async fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>, peer: PeerId) -> Result<(), String> {
 		match message {
 			RequestResponseMessage::Request { request, channel, .. } => {
@@ -338,7 +428,7 @@ impl ApiHandler {
 				let FileResponse(response) = response;
 
 				// println!("Got response: {:?}", self.pending_request);
-				let s = self.pending_request.remove(&request_id).unwrap();
+				let s = self.pending_requests.remove(&request_id).unwrap();
 				s.send(Ok("test".to_owned())).unwrap();
 
 				match response {
@@ -368,15 +458,11 @@ impl ApiHandler {
 	}
 
 	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
-
 		let (sender, receiver) = oneshot::channel();
 		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
-		self.pending_request.insert(request_id, sender);
 
-		// tokio::spawn(async {
-		// 	let res = receiver.await.unwrap();
-		// 	println!("receiver: {:?}", res);
-		// });
+		self.pending_requests.insert(request_id, sender);
+		let res = receiver.await.unwrap();
 		// Ok(res)
 		Err("test".to_owned())
 	}
@@ -390,67 +476,5 @@ impl ApiHandler {
 			.unwrap();
 
 		Ok(())
-	}
-}
-
-struct EventLoop {
-	managed_swarm: ManagedSwarm,
-}
-
-impl EventLoop {
-	pub fn new(
-		managed_swarm: ManagedSwarm
-	) -> Self {
-		Self {
-			managed_swarm,
-		}
-	}
-
-	pub async fn run(mut self) {
-		loop {
-			tokio::select! {
-				event = self.managed_swarm.0.select_next_some() => {
-					self.handle_event(event.expect("Swarm stream to be infinite.")).await;
-				},
-			}
-		}
-	}
-
-	pub async fn handle_event(event: SwarmEvent) {
-		match event {
-			SwarmEvent::NewListenAddr { address, .. } => {
-				println!("Listening on {:?}", address);
-			}
-			SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-				for (peer_id, multiaddr) in list {
-					// println!("discovered {:?}", peer_id);
-					self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-
-					self.ledgers.entry(peer_id).or_insert(0);
-				}
-			}
-			SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
-				for (peer_id, multiaddr) in list {
-					println!("expired {:?}", peer_id);
-					self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
-						.expect("Error removing address");
-					self.ledgers.remove(&peer_id);
-				}
-			}
-			SwarmEvent::Behaviour(OutEvent::RequestResponse(
-				RequestResponseEvent::Message { message, peer },
-			)) => {
-				// println!("request response event:{:?}",message);
-				match self.handle_request_response(message, peer).await {
-					Err(error) => println!("{}", error),
-					_ => {}
-				}; 
-			}
-			SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
-				// println!("OTHER KAD: \n{:?}", e);
-			}
-			_ => {}
-		}
-
 	}
 }
