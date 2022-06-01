@@ -17,13 +17,12 @@ use std::io::BufReader;
 use secp256k1::hashes::sha256;
 use secp256k1::ecdsa::Signature;
 use tonic::Code;
-use std::{str, error::Error, io};
+use std::{str, error::Error};
 use std::str::FromStr;
 use std::collections::HashMap;
 use futures::stream::StreamExt;
 use std::io::Read;
 use tokio::sync::oneshot;
-use libp2p_core::either::EitherError;
 
 use crate::swarm::ManagedSwarm;
 use crate::api;
@@ -46,9 +45,12 @@ use crate::api::{
 };
 
 pub struct ApiHandler {
+	// gRPC request receiver stream
 	mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
+	// gRPC response sender
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
-	managed_swarm: ManagedSwarm,
+	// Request-response Request receiever
+	requests_receiver: mpsc::Receiver<Event>
 }
 
 impl ApiHandler {
@@ -59,63 +61,41 @@ impl ApiHandler {
 	) -> Self {
 		let  mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
 
-		let event_loop = EventLoop::new(managed_swarm);
+		let (requests_sender, requests_receiver) = mpsc::channel::<Event>(32);
+		let event_loop = EventLoop::new(managed_swarm, requests_sender);
+
+		tokio::spawn(async move {
+			event_loop.run().await;
+		});
 
 		Self {
 			mpsc_receiver_stream,
 			broadcast_sender,
-			managed_swarm,
+			requests_receiver
 		}
 	}
 
 	pub async fn run(&mut self) {
-
 		loop {
 			tokio::select! {
-				// event = self.managed_swarm.0.select_next_some() => {
-				// 	match event {
-				// 		SwarmEvent::NewListenAddr { address, .. } => {
-				// 			println!("Listening on {:?}", address);
-				// 		}
-				// 		SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-				// 			for (peer_id, multiaddr) in list {
-				// 				// println!("discovered {:?}", peer_id);
-				// 				self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-
-				// 				self.ledgers.entry(peer_id).or_insert(0);
-				// 			}
-				// 		}
-				// 		SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
-				// 			for (peer_id, multiaddr) in list {
-				// 				println!("expired {:?}", peer_id);
-				// 				self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
-				// 					.expect("Error removing address");
-				// 				self.ledgers.remove(&peer_id);
-				// 			}
-				// 		}
-				// 		SwarmEvent::Behaviour(OutEvent::RequestResponse(
-				// 			RequestResponseEvent::Message { message, peer },
-				// 		)) => {
-				// 			// println!("request response event:{:?}",message);
-				// 			match self.handle_request_response(message, peer).await {
-				// 				Err(error) => println!("{}", error),
-				// 				_ => {}
-				// 			}; 
-				// 		}
-				// 		SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
-				// 			// println!("OTHER KAD: \n{:?}", e);
-				// 		}
-				// 		_ => {}
-				// 	}
-				// }
-				data = self.mpsc_receiver_stream.next() => match data {
-					Some(data) => {
-						match self.handle_api_event(data).await {
-							Err(error) => println!("{}", error),
-							_ => {}
-						};
+				data = self.mpsc_receiver_stream.next() => {
+					match data {
+						Some(data) => {
+							match self.handle_api_event(data).await {
+								Err(error) => println!("{}", error),
+								_ => {}
+							};
+						}
+						_ => {}
 					}
-					_ => {}
+				}
+				req = self.requests_receiver.recv() => {
+					println!("Got request, {:?}", req);
+					match req.unwrap() {
+						Event::InboundRequest { request, channel, peer } => {
+							self.handle_request_response(request, channel, peer);
+						}
+					}
 				}
 			}
 		}
@@ -135,9 +115,6 @@ impl ApiHandler {
 				let secp = Secp256k1::new();
 				let sig = Signature::from_str(&name.clone()).unwrap();
 				let message = Message::from_hashed_data::<sha256::Hash>(loc.clone().as_bytes());
-
-				// let test_sig = secp.sign_ecdsa(&message, &SecretKey::from_str("4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de").unwrap());
-				// println!("MSG: {:?}\nSignature: {:?}\nLocation: {:?}\nExpected signature: {:?}", message, sig, loc, test_sig);
 
 				match secp.verify_ecdsa(&message, &sig, &public_key) {
 					Err(_error) => {
@@ -160,8 +137,6 @@ impl ApiHandler {
 								if peers.len() != 0  && entry.metadata.children.len() != 0 {
 									let _get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
 
-									// println!("{:?}, {:?}", peers, entry.metadata);
-									// println!("Got here");
 									// self.managed_swarm.0.behaviour_mut()
 									// 	.request_response
 									// 	.send_request(&peers[0], FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned())));
@@ -251,15 +226,8 @@ impl ApiHandler {
 	}
 
 	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
-
-		// let (sender, receiver) = oneshot::channel();
 		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
 
-		// tokio::spawn(async {
-		// 	let res = receiver.await.unwrap();
-		// 	println!("receiver: {:?}", res);
-		// });
-		// Ok(res)
 		Err("test".to_owned())
 	}
 
@@ -273,22 +241,109 @@ impl ApiHandler {
 
 		Ok(())
 	}
+
+	pub async fn handle_request_response(&mut self, req: FileRequest, channel: ResponseChannel<FileResponse>, peer: PeerId) -> Result<(), String> {
+		let FileRequest(r) = req;
+
+		match r {
+			FileRequestType::ProvideRequest(key) => {
+				let k = Key::from(key.as_bytes().to_vec());
+
+				self.send_response(
+					FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned())), 
+					channel
+				).await.unwrap();
+
+				match self.managed_swarm.start_providing(k.clone()).await {
+					Err(error) => return Err(error),
+					_ => {}
+				};
+
+				match self.managed_swarm.get(&k).await {
+					Ok(record) => {
+						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+						println!("{:#?}", entry);
+						
+						if !entry.metadata.children.is_empty() {
+							let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+
+							match self.send_request(
+								peer, 
+								FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned()))
+							).await {
+								Ok(response) => {
+									println!("Response {:?}", response);
+								}
+								Err(error) => eprint!("Error while sending request: {}", error)
+							}
+						}
+					}						
+					Err(error) => {
+						eprintln!("Error while getting record: {:?}", error);
+					}
+				};
+			}
+			FileRequestType::GetFileRequest(cid) => {
+				// println!("Get File Request: {:?}", cid);
+				let location = format!("./cache/{}", cid.clone());
+
+				let content = {
+					if Path::new(&location).exists() {
+						let f = fs::File::open(&location).unwrap();
+						let mut reader = BufReader::new(f);
+						let mut buffer = Vec::new();
+						
+						reader.read_to_end(&mut buffer).unwrap();
+
+						buffer
+					} else {
+						println!("doesn't exists");
+						Vec::new()
+					}
+				};
+				
+
+
+				self.send_response(
+					FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
+						content,
+						cid
+					})),
+					channel
+				).await.unwrap();
+			}
+		}
+
+		Ok(())
+	}
+}
+
+#[derive(Debug)]
+pub enum Event {
+	InboundRequest {
+		request: FileRequest,
+		channel: ResponseChannel<FileResponse>,
+		peer: PeerId
+	},
 }
 
 struct EventLoop {
 	managed_swarm: ManagedSwarm,
 	ledgers: HashMap<PeerId, u16>,
 	pending_requests: HashMap<RequestId, oneshot::Sender<Result<String, Box<dyn Error + Send>>>>,
+	requests_sender: mpsc::Sender<Event>,
 }
 
 impl EventLoop {
 	pub fn new(
-		managed_swarm: ManagedSwarm
+		managed_swarm: ManagedSwarm,
+		requests_sender: mpsc::Sender<Event>,
 	) -> Self {
 		Self {
 			managed_swarm,
 			ledgers: Default::default(),
-			pending_requests: Default::default()
+			pending_requests: Default::default(),
+			requests_sender
 		}
 	}
 
@@ -296,16 +351,13 @@ impl EventLoop {
 		loop {
 			tokio::select! {
 				event = self.managed_swarm.0.select_next_some() => {
-					// self.handle_event(event).await;
 					match event {
 						SwarmEvent::NewListenAddr { address, .. } => {
 							println!("Listening on {:?}", address);
 						}
 						SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
 							for (peer_id, multiaddr) in list {
-								// println!("discovered {:?}", peer_id);
 								self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-
 								self.ledgers.entry(peer_id).or_insert(0);
 							}
 						}
@@ -320,141 +372,23 @@ impl EventLoop {
 						SwarmEvent::Behaviour(OutEvent::RequestResponse(
 							RequestResponseEvent::Message { message, peer },
 						)) => {
-							// println!("request response event:{:?}",message);
-							self.handle_request_response(message, peer);
+							match message {
+								RequestResponseMessage::Response { response, request_id } => {
+									println!("REsponse");
+								}
+								RequestResponseMessage::Request { request, channel, .. }  => {
+									self.requests_sender.send(
+										Event::InboundRequest { request, channel, peer }
+									).await.unwrap();
+								}
+							}
 						}
-						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {
-							// println!("OTHER KAD: \n{:?}", e);
-						}
+						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {}
 						_ => {}
 					};
 				},
 			}
 		}
-	}
-
-	// pub async fn handle_event(
-	// 	&mut self,
-	// 	event: SwarmEvent<
-	// 		OutEvent,
-	// 		EitherError<EitherError<io::Error, String>, String>
-	// 	>,
-	// ) -> Result<(), String> {
-
-	// 	Ok(())
-	// }
-
-	pub async fn handle_request_response(&mut self, message: RequestResponseMessage<FileRequest, FileResponse>, peer: PeerId) -> Result<(), String> {
-		match message {
-			RequestResponseMessage::Request { request, channel, .. } => {
-				let FileRequest(r) = request;
-				match r {
-					FileRequestType::ProvideRequest(key) => {
-						let k = Key::from(key.as_bytes().to_vec());
-
-						self.send_response(
-							FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned())), 
-							channel
-						).await.unwrap();
-
-						match self.managed_swarm.start_providing(k.clone()).await {
-							Err(error) => return Err(error),
-							_ => {}
-						};
-
-						// self.managed_swarm.0.behaviour_mut()
-						// 	.request_response
-						// 	.send_response(channel, 
-						// 		FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned()))
-						// 	)
-						// 	.unwrap();
-
-						match self.managed_swarm.get(&k).await {
-							Ok(record) => {
-								let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-								println!("{:#?}", entry);
-								
-								if !entry.metadata.children.is_empty() {
-									let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
-
-									match self.send_request(
-										peer, 
-										FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned()))
-									).await {
-										Ok(response) => {
-											println!("Response {:?}", response);
-										}
-										Err(error) => eprint!("Error while sending request: {}", error)
-									}
-								}
-							}						
-							Err(error) => {
-								eprintln!("Error while getting record: {:?}", error);
-							}
-						};
-					}
-					FileRequestType::GetFileRequest(cid) => {
-						// println!("Get File Request: {:?}", cid);
-						let location = format!("./cache/{}", cid.clone());
-
-						let content = {
-							if Path::new(&location).exists() {
-								let f = fs::File::open(&location).unwrap();
-								let mut reader = BufReader::new(f);
-								let mut buffer = Vec::new();
-								
-								reader.read_to_end(&mut buffer).unwrap();
-
-								buffer
-							} else {
-								println!("doesn't exists");
-								Vec::new()
-							}
-						};
-						
-
-
-						self.send_response(
-							FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
-								content,
-								cid
-							})),
-							channel
-						).await.unwrap();
-					}
-				}
-			}
-			RequestResponseMessage::Response { response, request_id } => {
-				let FileResponse(response) = response;
-
-				// println!("Got response: {:?}", self.pending_request);
-				let s = self.pending_requests.remove(&request_id).unwrap();
-				s.send(Ok("test".to_owned())).unwrap();
-
-				match response {
-					FileResponseType::GetFileResponse(GetFileResponse { content, cid }) => {
-						let location = format!("./cache/2/{}", cid);
-						let path: &Path = Path::new(&location);
-
-                                                let s = self.ledgers.entry(peer).or_insert(0);
-                                                *s += 1u16;
-                                                // println!("{:#?}", self.ledgers);
-
-						match fs::write(path, content) {
-							Err(error) => {
-								eprintln!("Error while writing file: {:?}", error);
-							},
-							_ => {}
-						}
-					},
-					FileResponseType::ProvideResponse(msg) => {
-						println!("Start providing response: {}", msg);
-					}
-				}
-			}
-		};
-
-		Ok(())
 	}
 
 	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
@@ -463,7 +397,6 @@ impl EventLoop {
 
 		self.pending_requests.insert(request_id, sender);
 		let res = receiver.await.unwrap();
-		// Ok(res)
 		Err("test".to_owned())
 	}
 

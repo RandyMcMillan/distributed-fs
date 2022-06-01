@@ -79,39 +79,7 @@ impl ManagedSwarm {
 		match res {
 			QueryResult::PutRecord(d) => {
 				match d {
-					Ok(dd) => {
-						// let behaviour = self.0.behaviour_mut();
-
-						// behaviour.kademlia.get_providers(dd.key.clone());
-
-						// let res = loop {
-						// 	if let SwarmEvent::Behaviour(OutEvent::Kademlia(KademliaEvent::OutboundQueryCompleted {result, .. })) = self.0.select_next_some().await {
-						// 		break result;
-						// 	}
-						// };
-
-						// let peer_id = match res {
-						// 	QueryResult::GetProviders(p) => {
-						// 		let p = p.unwrap();
-						// 		if p.closest_peers.len() == 0 {
-						// 			return Ok(dd.key);
-						// 		}
-
-						// 		p.closest_peers[0]
-						// 	},
-						// 	_ => {
-						// 		return Ok(dd.key.clone());
-						// 	}
-						// };
-						
-						// let behaviour = self.0.behaviour_mut();
-						// let key = String::from_utf8(dd.key.clone().to_vec()).unwrap();
-						// behaviour
-						// 	.request_response
-						// 	.send_request(&peer_id, FileRequest(FileRequestType::ProvideRequest(key)));
-
-						Ok(dd.key)
-					},
+					Ok(dd) => Ok(dd.key),
 					Err(e) => Err(format!("{:?}", e))
 				}
 			}
@@ -177,7 +145,6 @@ impl ManagedSwarm {
 		};
 		println!("Got res: {:?}", res);
 
-		// Ok(res)
 		Ok(req_id)
 	}
 }

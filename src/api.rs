@@ -184,7 +184,6 @@ impl Service for MyApi {
 
 							for download_item in download_children.iter() {
 								let location = format!("./cache/{}", download_item.cid.as_ref().unwrap());
-								// println!("{:?}", location.clone());
 
 								if Path::new(&location).exists() {
 									let file = fs::File::open(&location).unwrap();
