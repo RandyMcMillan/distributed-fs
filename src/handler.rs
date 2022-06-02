@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use futures::stream::StreamExt;
 use std::io::Read;
 use tokio::sync::oneshot;
+use libp2p::kad::Record;
 
 use crate::swarm::ManagedSwarm;
 use crate::api;
@@ -50,7 +51,9 @@ pub struct ApiHandler {
 	// gRPC response sender
 	broadcast_sender: broadcast::Sender<DhtResponseType>,
 	// Request-response Request receiever
-	requests_receiver: mpsc::Receiver<Event>
+	requests_receiver: mpsc::Receiver<ReqResEvent>,
+	// DHT events for eventloop sender
+	dht_event_sender: mpsc::Sender<DhtEvent>
 }
 
 impl ApiHandler {
@@ -61,8 +64,9 @@ impl ApiHandler {
 	) -> Self {
 		let  mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
 
-		let (requests_sender, requests_receiver) = mpsc::channel::<Event>(32);
-		let event_loop = EventLoop::new(managed_swarm, requests_sender);
+		let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
+		let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
+		let event_loop = EventLoop::new(managed_swarm, requests_sender, dht_event_receiver);
 
 		tokio::spawn(async move {
 			event_loop.run().await;
@@ -71,7 +75,8 @@ impl ApiHandler {
 		Self {
 			mpsc_receiver_stream,
 			broadcast_sender,
-			requests_receiver
+			requests_receiver,
+			dht_event_sender
 		}
 	}
 
@@ -92,7 +97,7 @@ impl ApiHandler {
 				req = self.requests_receiver.recv() => {
 					println!("Got request, {:?}", req);
 					match req.unwrap() {
-						Event::InboundRequest { request, channel, peer } => {
+						ReqResEvent::InboundRequest { request, channel, peer } => {
 							self.handle_request_response(request, channel, peer);
 						}
 					}
@@ -128,11 +133,20 @@ impl ApiHandler {
 					_ => {}
 				}
 
-				match self.managed_swarm.get(&key).await {
+
+				let (sender, receiver) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::GetRecord { key: key.clone(), sender }
+				).await;
+				match receiver.await.unwrap() {
 					Ok(record) => {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-						match self.managed_swarm.get_providers(key).await {
+						let (sender, receiver) = oneshot::channel();
+						self.dht_event_sender.send(
+							DhtEvent::GetProviders { key, sender }
+						).await;
+						match receiver.await.unwrap() {
 							Ok(peers) => {
 								if peers.len() != 0  && entry.metadata.children.len() != 0 {
 									let _get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
@@ -177,6 +191,7 @@ impl ApiHandler {
 
 				let entry = Entry::new(signature, public_key.to_string(), entry);
 				let value = serde_json::to_vec(&entry).unwrap();
+				let k = Key::new(&key.clone());
 
 				match secp.verify_ecdsa(&message, &sig, &pub_key) {
 					Err(_error) => {
@@ -189,9 +204,17 @@ impl ApiHandler {
 					_ => {}
 				}
 
-				let res = match self.managed_swarm.put(Key::new(&key.clone()), value).await {
+				let (sender, receiver) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::PutRecord { sender, key: k, value }
+				).await;
+				let res = match receiver.await.unwrap() {
 					Ok(key) => {
-						let peers = self.managed_swarm.get_providers(key.clone()).await.unwrap();
+						let (sender, receiver) = oneshot::channel();
+						self.dht_event_sender.send(
+							DhtEvent::GetProviders { key: key.clone(), sender }
+						).await;
+						let peers = receiver.await.unwrap().unwrap(); 
 						let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
 						if !peers.is_empty() {
@@ -319,7 +342,7 @@ impl ApiHandler {
 }
 
 #[derive(Debug)]
-pub enum Event {
+pub enum ReqResEvent {
 	InboundRequest {
 		request: FileRequest,
 		channel: ResponseChannel<FileResponse>,
@@ -327,31 +350,51 @@ pub enum Event {
 	},
 }
 
+#[derive(Debug)]
+pub enum DhtEvent {
+	GetProviders {
+		key: Key,
+		sender: oneshot::Sender<Result<Vec<PeerId>, String>>
+	},
+	GetRecord {
+		key: Key,
+		sender: oneshot::Sender<Result<Record, String>>
+	},
+	PutRecord {
+		key: Key,
+		value: Vec<u8>,
+		sender: oneshot::Sender<Result<Key, String>>
+	}
+}
+
 struct EventLoop {
 	managed_swarm: ManagedSwarm,
+	requests_sender: mpsc::Sender<ReqResEvent>,
+	events_receiver: mpsc::Receiver<DhtEvent>,
 	ledgers: HashMap<PeerId, u16>,
 	pending_requests: HashMap<RequestId, oneshot::Sender<Result<String, Box<dyn Error + Send>>>>,
-	requests_sender: mpsc::Sender<Event>,
 }
 
 impl EventLoop {
 	pub fn new(
 		managed_swarm: ManagedSwarm,
-		requests_sender: mpsc::Sender<Event>,
+		requests_sender: mpsc::Sender<ReqResEvent>,
+		events_receiver: mpsc::Receiver<DhtEvent>
 	) -> Self {
 		Self {
 			managed_swarm,
+			requests_sender,
+			events_receiver,
 			ledgers: Default::default(),
 			pending_requests: Default::default(),
-			requests_sender
 		}
 	}
 
 	pub async fn run(mut self) {
 		loop {
 			tokio::select! {
-				event = self.managed_swarm.0.select_next_some() => {
-					match event {
+				swarm_event = self.managed_swarm.0.select_next_some() => {
+					match swarm_event {
 						SwarmEvent::NewListenAddr { address, .. } => {
 							println!("Listening on {:?}", address);
 						}
@@ -378,7 +421,7 @@ impl EventLoop {
 								}
 								RequestResponseMessage::Request { request, channel, .. }  => {
 									self.requests_sender.send(
-										Event::InboundRequest { request, channel, peer }
+										ReqResEvent::InboundRequest { request, channel, peer }
 									).await.unwrap();
 								}
 							}
@@ -386,7 +429,21 @@ impl EventLoop {
 						SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {}
 						_ => {}
 					};
-				},
+				}
+				dht_event = self.events_receiver.recv() => {
+					println!("dht-event: {:?}", dht_event);
+					if let  Some(dht_event) = dht_event {
+						match dht_event {
+							DhtEvent::GetProviders { key, sender } => {
+								sender.send(self.managed_swarm.get_providers(key).await);
+							}
+							DhtEvent::GetRecord { key, sender } => {
+								sender.send(self.managed_swarm.get(key).await);
+							}
+							_ => {}
+						}
+					}
+				}
 			}
 		}
 	}

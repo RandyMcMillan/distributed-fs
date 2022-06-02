@@ -39,7 +39,7 @@ impl ManagedSwarm {
 		Self(swarm)
 	}
  
-	pub async fn get(&mut self, key: &Key) -> Result<Record, &str> {
+	pub async fn get(&mut self, key: Key) -> Result<Record, String> {
 		let behaviour = self.0.behaviour_mut();
 
 		behaviour.kademlia.get_record(&key, Quorum::One);
@@ -54,7 +54,7 @@ impl ManagedSwarm {
 			QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
 			_ => {
 				println!("{:?}", res);
-				Err("Record not found")
+				Err("Record not found".to_owned())
 			}
 		}
 	}
