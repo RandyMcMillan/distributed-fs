@@ -134,17 +134,6 @@ impl ManagedSwarm {
 			.request_response
 			.send_request(&peer, request);
 
-		let res = loop {
-			if let SwarmEvent::Behaviour(
-				OutEvent::RequestResponse(
-					RequestResponseEvent::Message { message: RequestResponseMessage::Response { response, .. }, .. }
-				)
-			) = self.0.select_next_some().await {
-				break response;
-			}
-		};
-		println!("Got res: {:?}", res);
-
 		Ok(req_id)
 	}
 }

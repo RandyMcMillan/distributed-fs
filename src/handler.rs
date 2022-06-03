@@ -95,10 +95,9 @@ impl ApiHandler {
 					}
 				}
 				req = self.requests_receiver.recv() => {
-					println!("Got request, {:?}", req);
 					match req.unwrap() {
 						ReqResEvent::InboundRequest { request, channel, peer } => {
-							self.handle_request_response(request, channel, peer);
+							self.handle_request_response(request, channel, peer).await;
 						}
 					}
 				}
@@ -218,26 +217,29 @@ impl ApiHandler {
 						let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
 						if !peers.is_empty() {
-							match self.send_request(
-								peers[0], 
-								FileRequest(FileRequestType::ProvideRequest(key.clone()))
-							).await {
+							let request = FileRequest(FileRequestType::ProvideRequest(key.clone()));
+
+							let (sender, receiver) = oneshot::channel();
+							self.dht_event_sender.send(
+								DhtEvent::SendRequest { sender, request, peer: peers[0]  }
+							).await;
+
+							match receiver.await.unwrap() {
 								Ok(_res) => {},
 								Err(error) => eprint!("Start providing err: {}", error)
 							};
 						}
-
 
 						DhtResponseType::PutRecord(DhtPutRecordResponse { 
 							signature: Some(key),
 							error: None
 						})
 					},
-					Err(_error) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
-						// signature: None,
-						// error: Some((Code::Unknown, error.to_string()))
-						error: None,
-						signature: Some(key)
+					Err(error) => DhtResponseType::PutRecord(DhtPutRecordResponse { 
+						signature: None,
+						error: Some((Code::Unknown, error.to_owned()))
+						// error: None,
+						// signature: Some(key)
 					})
 				};
 
@@ -248,56 +250,64 @@ impl ApiHandler {
 		Ok(())
 	}
 
-	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
-		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
-
-		Err("test".to_owned())
-	}
-
-	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
-		let behaviour=  self.managed_swarm.0.behaviour_mut();
-
-		behaviour
-			.request_response
-			.send_response(channel, response)
-			.unwrap();
-
-		Ok(())
-	}
-
 	pub async fn handle_request_response(&mut self, req: FileRequest, channel: ResponseChannel<FileResponse>, peer: PeerId) -> Result<(), String> {
 		let FileRequest(r) = req;
 
 		match r {
 			FileRequestType::ProvideRequest(key) => {
 				let k = Key::from(key.as_bytes().to_vec());
+				let response = FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned())); 
 
-				self.send_response(
-					FileResponse(FileResponseType::ProvideResponse("Started providing".to_owned())), 
-					channel
-				).await.unwrap();
+				let (sender1, receiver1) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::SendResponse { sender: sender1, response, channel }
+				).await;
+				receiver1.await.unwrap();
 
-				match self.managed_swarm.start_providing(k.clone()).await {
+				let (sender2, receiver2) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::StartProviding { key: k.clone(), sender: sender2 }
+				).await;
+				match receiver2.await.unwrap() {
 					Err(error) => return Err(error),
 					_ => {}
 				};
 
-				match self.managed_swarm.get(&k).await {
+				let (sender3, receiver3) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::GetRecord { key: k, sender: sender3 }
+				).await;
+				match receiver3.await.unwrap() {
 					Ok(record) => {
 						let entry: Entry = serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 						println!("{:#?}", entry);
 						
 						if !entry.metadata.children.is_empty() {
 							let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
+							let request = FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned()));
 
-							match self.send_request(
-								peer, 
-								FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned()))
-							).await {
+							let (sender, receiver) = oneshot::channel();
+							self.dht_event_sender.send(
+								DhtEvent::SendRequest { sender, request, peer }
+							).await;
+							match receiver.await.unwrap() {
 								Ok(response) => {
-									println!("Response {:?}", response);
+									match response.0 {
+										FileResponseType::GetFileResponse(GetFileResponse { cid, content }) => {
+											let p = format!("./cache/2/{}", cid);
+											let path = Path::new(&p);
+
+											match fs::write(path, content) {
+												Err(error) => eprint!("error while writing file...\n {}", error),
+												_ => {}
+											};
+
+										}
+										_ => {}
+									}
 								}
-								Err(error) => eprint!("Error while sending request: {}", error)
+								Err(error) => eprint!("Error while sending request: {}", error),
+								_ => {}
 							}
 						}
 					}						
@@ -307,7 +317,6 @@ impl ApiHandler {
 				};
 			}
 			FileRequestType::GetFileRequest(cid) => {
-				// println!("Get File Request: {:?}", cid);
 				let location = format!("./cache/{}", cid.clone());
 
 				let content = {
@@ -324,16 +333,18 @@ impl ApiHandler {
 						Vec::new()
 					}
 				};
-				
+
+				let response = FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
+					content,
+					cid
+				}));
 
 
-				self.send_response(
-					FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
-						content,
-						cid
-					})),
-					channel
+				let (sender, receiver) = oneshot::channel();
+				self.dht_event_sender.send(
+					DhtEvent::SendResponse { sender, response, channel }
 				).await.unwrap();
+				receiver.await.unwrap();
 			}
 		}
 
@@ -356,6 +367,10 @@ pub enum DhtEvent {
 		key: Key,
 		sender: oneshot::Sender<Result<Vec<PeerId>, String>>
 	},
+	StartProviding {
+		key: Key,
+		sender: oneshot::Sender<Result<Key, String>>
+	},
 	GetRecord {
 		key: Key,
 		sender: oneshot::Sender<Result<Record, String>>
@@ -364,6 +379,16 @@ pub enum DhtEvent {
 		key: Key,
 		value: Vec<u8>,
 		sender: oneshot::Sender<Result<Key, String>>
+	},
+	SendRequest {
+		peer: PeerId,
+		request: FileRequest,
+		sender: oneshot::Sender<Result<FileResponse, String>>
+	},
+	SendResponse {
+		channel: ResponseChannel<FileResponse>,
+		response: FileResponse,
+		sender: oneshot::Sender<Result<(), String>>
 	}
 }
 
@@ -372,7 +397,7 @@ struct EventLoop {
 	requests_sender: mpsc::Sender<ReqResEvent>,
 	events_receiver: mpsc::Receiver<DhtEvent>,
 	ledgers: HashMap<PeerId, u16>,
-	pending_requests: HashMap<RequestId, oneshot::Sender<Result<String, Box<dyn Error + Send>>>>,
+	pending_requests: HashMap<RequestId, oneshot::Sender<Result<FileResponse, Box<dyn Error + Send>>>>,
 }
 
 impl EventLoop {
@@ -417,7 +442,14 @@ impl EventLoop {
 						)) => {
 							match message {
 								RequestResponseMessage::Response { response, request_id } => {
-									println!("REsponse");
+									match self.pending_requests.remove(&request_id) {
+										Some(sender) => {
+											sender.send(Ok(response)).unwrap();
+										},
+										None => { 
+											eprint!("Request not found: {}", request_id);
+										}
+									};
 								}
 								RequestResponseMessage::Request { request, channel, .. }  => {
 									self.requests_sender.send(
@@ -431,14 +463,28 @@ impl EventLoop {
 					};
 				}
 				dht_event = self.events_receiver.recv() => {
-					println!("dht-event: {:?}", dht_event);
+					// println!("dht-event: {:?}", dht_event);
 					if let  Some(dht_event) = dht_event {
 						match dht_event {
 							DhtEvent::GetProviders { key, sender } => {
 								sender.send(self.managed_swarm.get_providers(key).await);
 							}
+							DhtEvent::StartProviding { key, sender } => {
+								sender.send(self.managed_swarm.start_providing(key).await);
+							}
 							DhtEvent::GetRecord { key, sender } => {
 								sender.send(self.managed_swarm.get(key).await);
+							}
+							DhtEvent::PutRecord { key, sender, value } => {
+								sender.send(self.managed_swarm.put(key, value).await);
+							}
+							DhtEvent::SendRequest { sender, request, peer } => {
+								self.send_request(peer, request, sender).await;
+							}
+							DhtEvent::SendResponse { sender, response, channel } => {
+								sender.send(Ok(())).unwrap();
+								// self.send_response(response, channel, sender);
+								self.send_response(response, channel).await.unwrap();
 							}
 							_ => {}
 						}
@@ -448,17 +494,24 @@ impl EventLoop {
 		}
 	}
 
-	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest) -> Result<FileResponse, String> {
-		let (sender, receiver) = oneshot::channel();
+	pub async fn send_request(&mut self, peer: PeerId, request: FileRequest, sender: oneshot::Sender<Result<FileResponse, String>>) -> Result<(), String> {
+		let (sender1, receiver) = oneshot::channel();
 		let request_id = self.managed_swarm.send_request(peer, request).await.unwrap();
 
-		self.pending_requests.insert(request_id, sender);
-		let res = receiver.await.unwrap();
-		Err("test".to_owned())
+		self.pending_requests.insert(request_id, sender1);
+		tokio::spawn(async move {
+			let res = receiver.await.unwrap();
+			match res {
+				Ok(r) => sender.send(Ok(r)).unwrap(),
+				Err(r) => sender.send(Err("some error".to_owned())).unwrap()
+			};
+		});
+
+		Ok(())
 	}
 
 	pub async fn send_response(&mut self, response: FileResponse, channel: ResponseChannel<FileResponse>) -> Result<(), String> {
-		let behaviour=  self.managed_swarm.0.behaviour_mut();
+		let behaviour = self.managed_swarm.0.behaviour_mut();
 
 		behaviour
 			.request_response
