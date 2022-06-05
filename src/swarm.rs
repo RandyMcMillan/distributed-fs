@@ -6,11 +6,7 @@ use libp2p::{
 	mdns::{Mdns, MdnsConfig},
 	PeerId, 
 };
-use libp2p::request_response::{
-	RequestId,
-	RequestResponseEvent,
-	RequestResponseMessage
-};
+use libp2p::request_response::RequestId;
 use libp2p::kad::{
 	Record, 
 	Quorum,

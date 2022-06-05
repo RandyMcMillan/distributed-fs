@@ -3,7 +3,6 @@ import { createHash } from "crypto";
 import fs from "fs"
 import { loadSync } from "@grpc/proto-loader";
 import fsPath from "path";
-const CryptoJS = require('crypto-js');
 
 const PROTO_PATH = fsPath.join(__dirname, '../proto/api.proto'),
 	SERVER_URL = "192.168.0.248:50051",
@@ -30,14 +29,11 @@ meta.add('public_key', PUBLIC_KEY);
 
 const clearDir = async (dir: string) => new Promise((res, rej) => {
 	const path = fsPath.join(__dirname, dir)
-	fs.readdir(path, (err, files) => {
-		if (err) rej(err);
 
-		for (const file of files) {
-			fs.unlinkSync(fsPath.join(path, file));
-		}
+	fs.rm(path, { recursive: true, force: true }, (err) => {
+		if (err) rej(err);
 		res(null)
-	});
+	})
 })
 
 const downloadFile = async () => {
@@ -54,9 +50,13 @@ const downloadFile = async () => {
 
 	await clearDir("../download")
 	call.on("data", (res: any) => {
-		console.log("DATA: ", res[res.download_response], res)
+		// console.log("DATA: ", res[res.download_response], res)
 		if (res.download_response === "file") {
-			fs.appendFileSync(`./download/${fsPath.basename(res[res.download_response].name)}`, res[res.download_response].content)
+			const folderPath = fsPath.join("./download", fsPath.dirname(res[res.download_response].name));
+			if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+
+			const fullPath = fsPath.join("./download", res[res.download_response].name)
+			fs.appendFileSync(fullPath, res[res.download_response].content);
 		}
 	})
 
@@ -159,6 +159,6 @@ const uploadDirectory = async (path: string) => {
 	await call.end()
 }
 
-uploadDirectory("../test/Hello").then(() => {
-	// downloadFile()
-})
+//uploadDirectory("../test/Hello").then(() => {
+downloadFile()
+//})

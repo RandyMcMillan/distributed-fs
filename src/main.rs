@@ -19,6 +19,7 @@ mod entry;
 mod behaviour;
 mod swarm;
 mod handler;
+mod event_loop;
 
 use swarm::ManagedSwarm;
 use api::{

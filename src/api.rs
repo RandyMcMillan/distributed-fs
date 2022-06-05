@@ -101,10 +101,6 @@ impl Service for MyApi {
 								if let Some((code, message)) = dht_put_response.error {
 									return Err(Status::new(code, message));
 								}
-
-								// return Ok(Response::new(FileUploadResponse {
-								// 	key: signature.clone()
-								// }));
 							}
 							_ => {
 								println!("unknown error");
