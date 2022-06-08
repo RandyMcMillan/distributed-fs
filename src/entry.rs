@@ -42,6 +42,24 @@ impl EntryMetaData {
 			}).collect()
 		}
 	}
+
+	pub fn api_children(&self, location: Option<String>) -> Vec<ApiChildren> {
+		if let Some(location) = location {
+			return self.children.iter()
+				.filter(|item| item.name.starts_with(&location))
+				.map(|item| ApiChildren { 
+					name: item.name.clone(), 
+					r#type: item.r#type.clone(), 
+					cid: item.cid.clone()
+				}).collect::<Vec<ApiChildren>>();
+		} 
+
+		self.children.iter().map(|item| ApiChildren { 
+			name: item.name.clone(), 
+			r#type: item.r#type.clone(), 
+			cid: item.cid.clone()
+		}).collect()
+	}
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

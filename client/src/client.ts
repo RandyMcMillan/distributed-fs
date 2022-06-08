@@ -38,6 +38,7 @@ const clearDir = async (dir: string) => new Promise((res, rej) => {
 
 const downloadFile = async () => {
 	const sig = "3044022078cfbc1a9d1e63cf94ef52151f6a1e95101b27bde1b9abbaac1163ebdf363e5002204a17153ca42c8170dc0371bae8d38934cc21ae7f942fc2e6f02c7678affc0736";
+	//const sig = "304402205cc873f49ea9268e4038ff9b8417921f2183ba3095c4b502cc4eac25184d2c69022004c1f6b5907140f320f27c75413ef2009bb3a4ff66fa3c6ca7f7a4cccbf3802f";
 
 	const call = client.Get(
 		{
@@ -50,6 +51,7 @@ const downloadFile = async () => {
 
 	await clearDir("../download")
 	call.on("data", (res: any) => {
+		console.log(res[res.download_response])
 		// console.log("DATA: ", res[res.download_response], res)
 		if (res.download_response === "file") {
 			const folderPath = fsPath.join("./download", fsPath.dirname(res[res.download_response].name));
@@ -159,6 +161,5 @@ const uploadDirectory = async (path: string) => {
 	await call.end()
 }
 
-//uploadDirectory("../test/Hello").then(() => {
+//uploadDirectory("../test/Hello")
 downloadFile()
-//})

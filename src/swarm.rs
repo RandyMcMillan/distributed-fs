@@ -49,7 +49,7 @@ impl ManagedSwarm {
 		match res {
 			QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
 			_ => {
-				println!("{:?}", res);
+				// println!("{:?}", res);
 				Err("Record not found".to_owned())
 			}
 		}

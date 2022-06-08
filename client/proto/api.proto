@@ -34,6 +34,7 @@ message GetRequest {
 
 message GetResponseMetadata {
 	optional ApiEntry entry = 1;
+	repeated ApiChildren children = 2;
 }
 
 message DownloadFile {

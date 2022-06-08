@@ -21,7 +21,8 @@ use crate::service::{
 	ApiEntry, 
 	put_request::UploadRequest,
 	get_response::DownloadResponse,
-	DownloadFile
+	DownloadFile,
+	GetResponseMetadata
 };
 use crate::entry::{Entry, Children};
 
@@ -167,7 +168,7 @@ impl Service for MyApi {
 			Ok(dht_response) => match dht_response {
 				DhtResponseType::GetRecord(dht_get_response) => {
 					if let Some((code, message)) = dht_get_response.error {
-						println!("{}\n{:?}", message, dht_request);
+						// println!("{}\n{:?}", message, dht_request);
 						return Err(Status::new(code, message));
 					}
 
@@ -211,6 +212,22 @@ impl Service for MyApi {
 								}
 							}
 						});
+					} else {
+						let children = {
+							let location = dht_get_response.location.unwrap();
+							if location == "/" {
+								entry.metadata.api_children(None)
+							} else {
+								entry.metadata.api_children(Some(location))
+							}
+						};
+
+						tx.send(Ok(GetResponse {
+							download_response: Some(DownloadResponse::Metadata(GetResponseMetadata {
+								entry: None,
+								children
+							}))
+						})).await.unwrap();
 					}
 				}
 				_ => {
