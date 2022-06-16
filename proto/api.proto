@@ -50,6 +50,8 @@ message UploadFile {
 
 message PutResponse {
 	string key = 1;
+	bool failed = 2;
+	optional string error = 3;
 }
 
 message PutRequest {

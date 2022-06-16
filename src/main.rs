@@ -1,86 +1,86 @@
-use std::error::Error;
-use std::env;
-use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Secp256k1, Message, SecretKey};
 use secp256k1::hashes::sha256;
-use tonic::transport::Server;
-use tokio::sync::{mpsc, broadcast};
-use tokio::sync::Mutex;
-use std::sync::Arc;
-use std::str::FromStr;
+use secp256k1::rand::rngs::OsRng;
+use secp256k1::{Message, Secp256k1, SecretKey};
 use service::service_server::ServiceServer;
+use std::env;
+use std::error::Error;
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::sync::{broadcast, mpsc};
+use tonic::transport::Server;
 
 mod service {
-	tonic::include_proto!("api");
+    tonic::include_proto!("api");
 }
 
 mod api;
-mod entry;
 mod behaviour;
-mod swarm;
-mod handler;
+mod entry;
 mod event_loop;
+mod handler;
+mod swarm;
 
+use api::{DhtRequestType, DhtResponseType, MyApi};
 use swarm::ManagedSwarm;
-use api::{
-	MyApi,
-	DhtRequestType,
-	DhtResponseType
-};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-	let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().collect();
 
-	if args.len() > 1 && &args[1] == "gen-keypair" {
-		let secp = Secp256k1::new();
-		let mut rng = OsRng::new().unwrap();
-		let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+    if args.len() > 1 && &args[1] == "gen-keypair" {
+        let secp = Secp256k1::new();
+        let mut rng = OsRng::new().unwrap();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
 
-		println!("Public key: {}\nPrivate Key: {}", public_key.to_string(), secret_key.display_secret());
-		println!("Secret Key: {:?}", secret_key.secret_bytes());
+        println!(
+            "Public key: {}\nPrivate Key: {}",
+            public_key.to_string(),
+            secret_key.display_secret()
+        );
+        println!("Secret Key: {:?}", secret_key.secret_bytes());
 
-		generate_signature(
+        generate_signature(
 			"e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/folder".as_bytes(),
 			"4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de"
 		);
 
-		return Ok(());
-	}
+        return Ok(());
+    }
 
-	if args.len() < 3 {
-		println!("Provide server_addr 'cargo r - 1.1.1.1:0000'");
-		return Ok(());
-	}
+    if args.len() < 3 {
+        println!("Provide server_addr 'cargo r - 1.1.1.1:0000'");
+        return Ok(());
+    }
 
-	let managed_swarm = ManagedSwarm::new("/ip4/192.168.0.248/tcp/0").await;
+    let managed_swarm = ManagedSwarm::new("/ip4/192.168.0.248/tcp/0").await;
 
-	let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
-	let (broadcast_sender, broadcast_receiver) = broadcast::channel::<DhtResponseType>(32);
+    let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
+    let (broadcast_sender, broadcast_receiver) = broadcast::channel::<DhtResponseType>(32);
 
-	tokio::spawn(async move { 
-		let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, managed_swarm);
-		h.run().await;
-	});
+    tokio::spawn(async move {
+        let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, managed_swarm);
+        h.run().await;
+    });
 
-	let api = MyApi {
-		mpsc_sender,
-		broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver))
-	};
-	let server = Server::builder().add_service(ServiceServer::new(api));
+    let api = MyApi {
+        mpsc_sender,
+        broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver)),
+    };
+    let server = Server::builder().add_service(ServiceServer::new(api));
 
-	let addr = args[2].parse().unwrap();
-	println!("Server listening on {}", addr);
-	server.serve(addr).await.unwrap();
+    let addr = args[2].parse().unwrap();
+    println!("Server listening on {}", addr);
+    server.serve(addr).await.unwrap();
 
-	Ok(())
+    Ok(())
 }
 
 fn generate_signature(msg: &[u8], secret_key: &str) {
-	let secret_key = SecretKey::from_str(secret_key).unwrap();
-	let secp = Secp256k1::new();
-	let message = Message::from_hashed_data::<sha256::Hash>(msg);
-	let sig = secp.sign_ecdsa(&message, &secret_key);
+    let secret_key = SecretKey::from_str(secret_key).unwrap();
+    let secp = Secp256k1::new();
+    let message = Message::from_hashed_data::<sha256::Hash>(msg);
+    let sig = secp.sign_ecdsa(&message, &secret_key);
 
-	println!("Signature: {}", sig);
+    println!("Signature: {}", sig);
 }

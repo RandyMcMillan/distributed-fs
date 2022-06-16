@@ -151,6 +151,10 @@ const uploadDirectory = async (path: string) => {
 	for (let { stream, cid } of createReadStreams(metaData.children.map(({ name, cid }) => ({ path: fsPath.join(path, name), cid })))) {
 		await new Promise((res, rej) => {
 			stream.on("data", (chunk) => {
+				let hasher = createHash("sha256")
+				hasher.update(chunk)
+
+				let cid = hasher.digest("hex");
 				call.write({ file: { content: chunk, cid } })
 			})
 			stream.on("end", res)
