@@ -1,9 +1,8 @@
 use futures::stream::StreamExt;
 use libp2p::kad::record::Key;
-use secp256k1::PublicKey;
-use std::collections::HashMap;
 use secp256k1::hashes::sha256;
-use secp256k1::{Message, Secp256k1};
+use secp256k1::Message;
+use secp256k1::PublicKey;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -17,7 +16,7 @@ use crate::entry::{Children, Entry};
 use crate::service::service_server::Service;
 use crate::service::{
     get_response::DownloadResponse, put_request::UploadRequest, ApiEntry, DownloadFile, GetRequest,
-    GetResponse, GetResponseMetadata, PutRequest, PutResponse,
+    GetResponse, GetResponseMetadata, PutRequest, PutRequestMetadata, PutResponse,
 };
 use tonic::{Code, Request, Response, Status};
 
@@ -61,8 +60,8 @@ pub enum DhtResponseType {
 }
 
 pub struct MyApi {
-    pub mpsc_sender: mpsc::Sender<DhtRequestType>,
-    pub broadcast_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>,
+    pub api_req_sender: mpsc::Sender<DhtRequestType>,
+    pub api_res_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>,
 }
 
 #[async_trait::async_trait]
@@ -111,61 +110,70 @@ impl Service for MyApi {
         };
 
         let mut stream = request.into_inner();
-        let mut signature: Option<String> = None;
-
-        let mut v: HashMap<String, Vec<u8>> = HashMap::new();
+        let mut metadata: Option<PutRequestMetadata> = None;
 
         while let Some(upload) = stream.next().await {
             let upload = upload.unwrap();
 
             match upload.upload_request.unwrap() {
-                UploadRequest::Metadata(metadata) => {
-                    signature = Some(metadata.signature.clone());
+                UploadRequest::Metadata(data) => {
+                    metadata = Some(data.clone());
 
                     let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
                         public_key,
-                        signature: signature.as_ref().unwrap().clone(),
-                        entry: metadata.entry.unwrap(),
+                        signature: data.signature.clone(),
+                        entry: data.entry.unwrap(),
                     });
 
-                    self.mpsc_sender.send(dht_request).await.unwrap();
-                    match self.broadcast_receiver.lock().await.recv().await {
-                        Ok(dht_response) => match dht_response {
-                            DhtResponseType::PutRecord(dht_put_response) => {
-                                if let Some(message) = dht_put_response.error {
-                                    // return Err(Status::new(code, message));
-                                    return format_ret(Some(message), metadata.signature.clone());
-                                }
-                            }
-                            _ => {
-                                println!("unknown error");
-                                return format_ret(
-                                    Some("Unknown error".to_owned()),
-                                    signature.unwrap().clone(),
-                                );
-                            }
-                        },
+                    self.api_req_sender.send(dht_request).await.unwrap();
+                    let dht_response = match self.api_res_receiver.lock().await.recv().await {
+                        Ok(dht_response) => dht_response,
                         Err(error) => {
-                            return format_ret(Some(error.to_string()), signature.unwrap());
+                            return format_ret(Some(error.to_string()), data.signature.clone());
+                        }
+                    };
+
+                    match dht_response {
+                        DhtResponseType::PutRecord(dht_put_response) => {
+                            if let Some(message) = dht_put_response.error {
+                                return format_ret(Some(message), data.signature.clone());
+                            }
+                        }
+                        _ => {
+                            return format_ret(
+                                Some("Unknown error".to_owned()),
+                                data.signature.clone(),
+                            );
                         }
                     };
                 }
                 UploadRequest::File(file) => {
-                    if !signature.is_none() {
-
+                    if !metadata.is_none() {
                         let cid = Message::from_hashed_data::<sha256::Hash>(&file.content);
 
                         if cid.to_string() != file.cid.clone() {
-                            return format_ret(Some("Invalid Cid".to_owned()), signature.unwrap());
+                            return format_ret(
+                                Some("Invalid Cid".to_owned()),
+                                metadata.unwrap().signature.clone(),
+                            );
                         }
-                
+
                         let location = format!("./cache/{}", cid.to_string());
                         let path: &Path = Path::new(&location);
 
-                        match fs::write(path, &file.content) {
-                            Err(_error) => return format_ret(Some("Error while writing file".to_owned()), signature.unwrap()),
-                            _ => {}
+                        if path.exists() {
+                            continue;
                         }
+
+                        match fs::write(path, &file.content) {
+                            Err(_error) => {
+                                return format_ret(
+                                    Some("Error while writing file".to_owned()),
+                                    metadata.unwrap().signature.clone(),
+                                )
+                            }
+                            _ => {}
+                        };
                     } else {
                         return Err(Status::new(
                             Code::Unknown,
@@ -176,17 +184,7 @@ impl Service for MyApi {
             };
         }
 
-        for (key, val) in v.iter() {
-            let location = format!("./cache/{}", key);
-            let path: &Path = Path::new(&location);
-
-            match fs::write(path, val) {
-                Err(error) => return Err(Status::new(Code::Unknown, error.to_string())),
-                _ => {}
-            }
-        }
-
-        format_ret(None, signature.unwrap())
+        format_ret(None, metadata.unwrap().signature)
     }
 
     type GetStream = ReceiverStream<Result<GetResponse, Status>>;
@@ -211,8 +209,8 @@ impl Service for MyApi {
             name: request.sig.to_owned(),
         });
 
-        self.mpsc_sender.send(dht_request.clone()).await.unwrap();
-        match self.broadcast_receiver.lock().await.recv().await {
+        self.api_req_sender.send(dht_request.clone()).await.unwrap();
+        match self.api_res_receiver.lock().await.recv().await {
             Ok(dht_response) => match dht_response {
                 DhtResponseType::GetRecord(dht_get_response) => {
                     if let Some(message) = dht_get_response.error {

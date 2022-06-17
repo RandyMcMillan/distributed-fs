@@ -14,7 +14,6 @@ use std::str::FromStr;
 use tokio::sync::oneshot;
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::Code;
 
 use crate::api;
 use crate::api::{
@@ -30,9 +29,9 @@ use crate::swarm::ManagedSwarm;
 
 pub struct ApiHandler {
     // gRPC request receiver stream
-    mpsc_receiver_stream: ReceiverStream<DhtRequestType>,
+    api_req_receiver_stream: ReceiverStream<DhtRequestType>,
     // gRPC response sender
-    broadcast_sender: broadcast::Sender<DhtResponseType>,
+    api_res_sender: broadcast::Sender<DhtResponseType>,
     // Request-response Request receiever
     requests_receiver: mpsc::Receiver<ReqResEvent>,
     // DHT events for eventloop sender
@@ -41,11 +40,11 @@ pub struct ApiHandler {
 
 impl ApiHandler {
     pub fn new(
-        mpsc_receiver: mpsc::Receiver<DhtRequestType>,
-        broadcast_sender: broadcast::Sender<DhtResponseType>,
+        api_req_receiver: mpsc::Receiver<DhtRequestType>,
+        api_res_sender: broadcast::Sender<DhtResponseType>,
         managed_swarm: ManagedSwarm,
     ) -> Self {
-        let mpsc_receiver_stream = ReceiverStream::new(mpsc_receiver);
+        let api_req_receiver_stream = ReceiverStream::new(api_req_receiver);
 
         let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
         let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
@@ -56,8 +55,8 @@ impl ApiHandler {
         });
 
         Self {
-            mpsc_receiver_stream,
-            broadcast_sender,
+            api_req_receiver_stream,
+            api_res_sender,
             requests_receiver,
             dht_event_sender,
         }
@@ -66,7 +65,7 @@ impl ApiHandler {
     pub async fn run(&mut self) {
         loop {
             tokio::select! {
-                data = self.mpsc_receiver_stream.next() => {
+                data = self.api_req_receiver_stream.next() => {
                     match data {
                         Some(data) => {
                             match self.handle_api_event(data).await {
@@ -108,7 +107,7 @@ impl ApiHandler {
 
                 match secp.verify_ecdsa(&message, &sig, &public_key) {
                     Err(_error) => {
-                        self.broadcast_sender
+                        self.api_res_sender
                             .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
                                 entry: None,
                                 error: Some("Invalid signature".to_string()),
@@ -134,7 +133,7 @@ impl ApiHandler {
                         let entry: Entry =
                             serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
 
-                        self.broadcast_sender
+                        self.api_res_sender
                             .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
                                 entry: Some(entry),
                                 error: None,
@@ -143,7 +142,7 @@ impl ApiHandler {
                             .unwrap();
                     }
                     Err(error) => {
-                        self.broadcast_sender
+                        self.api_res_sender
                             .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
                                 entry: None,
                                 error: Some(error.to_string()),
@@ -173,10 +172,10 @@ impl ApiHandler {
 
                 match secp.verify_ecdsa(&message, &sig, &pub_key) {
                     Err(_error) => {
-                        self.broadcast_sender
+                        self.api_res_sender
                             .send(DhtResponseType::PutRecord(DhtPutRecordResponse {
                                 signature: Some(key),
-                                error: Some("Invalid signature".to_string())
+                                error: Some("Invalid signature".to_string()),
                             }))
                             .unwrap();
                         return Ok(());
@@ -236,7 +235,7 @@ impl ApiHandler {
                     }),
                 };
 
-                self.broadcast_sender.send(res).unwrap();
+                self.api_res_sender.send(res).unwrap();
             }
         };
 

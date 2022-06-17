@@ -55,17 +55,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let managed_swarm = ManagedSwarm::new("/ip4/192.168.0.248/tcp/0").await;
 
-    let (mpsc_sender, mpsc_receiver) = mpsc::channel::<DhtRequestType>(32);
-    let (broadcast_sender, broadcast_receiver) = broadcast::channel::<DhtResponseType>(32);
+    let (api_req_sender, api_req_receiver) = mpsc::channel::<DhtRequestType>(32);
+    let (api_res_sender, api_res_receiver) = broadcast::channel::<DhtResponseType>(32);
 
     tokio::spawn(async move {
-        let mut h = handler::ApiHandler::new(mpsc_receiver, broadcast_sender, managed_swarm);
+        let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);
         h.run().await;
     });
 
     let api = MyApi {
-        mpsc_sender,
-        broadcast_receiver: Arc::new(Mutex::new(broadcast_receiver)),
+        api_req_sender,
+        api_res_receiver: Arc::new(Mutex::new(api_res_receiver)),
     };
     let server = Server::builder().add_service(ServiceServer::new(api));
 
