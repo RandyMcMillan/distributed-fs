@@ -1,8 +1,7 @@
 use futures::stream::StreamExt;
 use libp2p::kad::record::Key;
 use secp256k1::hashes::sha256;
-use secp256k1::Message;
-use secp256k1::PublicKey;
+use secp256k1::{Message, PublicKey};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -76,13 +75,13 @@ impl Service for MyApi {
                 if let Some(error) = error {
                     PutResponse {
                         key,
-                        failed: true,
+                        success: false,
                         error: Some(error),
                     }
                 } else {
                     PutResponse {
                         key,
-                        failed: false,
+                        success: true,
                         error: None,
                     }
                 }
@@ -118,34 +117,6 @@ impl Service for MyApi {
             match upload.upload_request.unwrap() {
                 UploadRequest::Metadata(data) => {
                     metadata = Some(data.clone());
-
-                    let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
-                        public_key,
-                        signature: data.signature.clone(),
-                        entry: data.entry.unwrap(),
-                    });
-
-                    self.api_req_sender.send(dht_request).await.unwrap();
-                    let dht_response = match self.api_res_receiver.lock().await.recv().await {
-                        Ok(dht_response) => dht_response,
-                        Err(error) => {
-                            return format_ret(Some(error.to_string()), data.signature.clone());
-                        }
-                    };
-
-                    match dht_response {
-                        DhtResponseType::PutRecord(dht_put_response) => {
-                            if let Some(message) = dht_put_response.error {
-                                return format_ret(Some(message), data.signature.clone());
-                            }
-                        }
-                        _ => {
-                            return format_ret(
-                                Some("Unknown error".to_owned()),
-                                data.signature.clone(),
-                            );
-                        }
-                    };
                 }
                 UploadRequest::File(file) => {
                     if !metadata.is_none() {
@@ -180,6 +151,33 @@ impl Service for MyApi {
                             "No metadata received".to_owned(),
                         ));
                     }
+                }
+            };
+        }
+
+        if let Some(data) = metadata.clone() {
+            let dht_request = DhtRequestType::PutRecord(DhtPutRecordRequest {
+                public_key,
+                signature: data.signature.clone(),
+                entry: data.entry.unwrap(),
+            });
+
+            self.api_req_sender.send(dht_request).await.unwrap();
+            let dht_response = match self.api_res_receiver.lock().await.recv().await {
+                Ok(dht_response) => dht_response,
+                Err(error) => {
+                    return format_ret(Some(error.to_string()), data.signature.clone());
+                }
+            };
+
+            match dht_response {
+                DhtResponseType::PutRecord(dht_put_response) => {
+                    if let Some(message) = dht_put_response.error {
+                        return format_ret(Some(message), data.signature.clone());
+                    }
+                }
+                _ => {
+                    return format_ret(Some("Unknown error".to_owned()), data.signature.clone());
                 }
             };
         }

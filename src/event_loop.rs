@@ -1,6 +1,5 @@
 use futures::StreamExt;
-use libp2p::kad::record::Key;
-use libp2p::kad::Record;
+use libp2p::kad::{record::Key, Record};
 use libp2p::mdns::MdnsEvent;
 use libp2p::request_response::{
     RequestId, RequestResponseEvent, RequestResponseMessage, ResponseChannel,
@@ -9,8 +8,7 @@ use libp2p::swarm::SwarmEvent;
 use libp2p::PeerId;
 use std::collections::HashMap;
 use std::error::Error;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::behaviour::{FileRequest, FileResponse, OutEvent};
 use crate::swarm::ManagedSwarm;

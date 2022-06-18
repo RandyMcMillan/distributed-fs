@@ -6,8 +6,7 @@ use std::env;
 use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tonic::transport::Server;
 
 mod service {

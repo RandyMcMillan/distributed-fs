@@ -5,14 +5,11 @@ use libp2p::PeerId;
 use secp256k1::ecdsa::Signature;
 use secp256k1::hashes::sha256;
 use secp256k1::{Message, Secp256k1};
-use std::fs;
-use std::io::BufReader;
-use std::io::Read;
+use std::io::{BufReader, Read};
 use std::path::Path;
-use std::str;
 use std::str::FromStr;
-use tokio::sync::oneshot;
-use tokio::sync::{broadcast, mpsc};
+use std::{fs, str};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::api;
