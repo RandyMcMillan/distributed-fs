@@ -1,7 +1,8 @@
 use futures::stream::StreamExt;
 use libp2p::kad::record::Key;
+use secp256k1::ecdsa::Signature;
 use secp256k1::hashes::sha256;
-use secp256k1::{Message, PublicKey};
+use secp256k1::{Message, PublicKey, Secp256k1};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -116,7 +117,37 @@ impl Service for MyApi {
 
             match upload.upload_request.unwrap() {
                 UploadRequest::Metadata(data) => {
-                    metadata = Some(data.clone());
+                    let secp = Secp256k1::new();
+                    let sig = match Signature::from_str(&data.signature) {
+                        Err(_error) => {
+                            return format_ret(
+                                Some("Error while parsing signature".to_owned()),
+                                data.signature.clone(),
+                            )
+                        }
+                        Ok(sig) => sig,
+                    };
+
+                    let message = Message::from_hashed_data::<sha256::Hash>(
+                        format!(
+                            "{}/{}",
+                            public_key.to_string(),
+                            data.clone().entry.unwrap().name
+                        )
+                        .as_bytes(),
+                    );
+
+                    match secp.verify_ecdsa(&message, &sig, &public_key) {
+                        Err(_error) => {
+                            return format_ret(
+                                Some("Invalid signature".to_owned()),
+                                data.signature.clone(),
+                            )
+                        }
+                        _ => {}
+                    }
+
+                    metadata = Some(data);
                 }
                 UploadRequest::File(file) => {
                     if !metadata.is_none() {

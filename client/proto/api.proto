@@ -16,6 +16,7 @@ message ApiChildren {
 	string name = 1;
 	string type = 2;
 	optional string cid = 3;
+	int32 size = 4;
 }
 
 message ApiEntry {

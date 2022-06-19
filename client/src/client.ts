@@ -66,7 +66,7 @@ const downloadFile = async () => {
 }
 
 type Type = "file" | "directory"
-type Children = { type: Type, name: string, cid: string, entry: null }[]
+type Children = { type: Type, name: string, cid: string, entry: null, cids: string[] }[]
 
 interface MetaData {
 	name: string
@@ -101,7 +101,8 @@ const getMetaDataForDir = (path: string): null | MetaData => {
 					name: fsPath.join(basePath, entry),
 					type: "file",
 					cid,
-					entry: null
+					entry: null,
+					cids: []
 				})
 			}
 		})
@@ -114,8 +115,32 @@ const getMetaDataForDir = (path: string): null | MetaData => {
 	return metaData
 }
 
+const addCidsToChildren = async (children: Children, path: string): Promise<Children> => {
+	for (const { name, type, cids } of children) {
+		if (type === "file") {
+			const filePath = fsPath.join(path, name),
+				stream = fs.createReadStream(fsPath.join(__dirname, filePath), { highWaterMark: 1024 * 128 })
+
+			await new Promise((res, rej) => {
+				stream.on("data", (chunk) => {
+					let hasher = createHash("sha256")
+					hasher.update(chunk)
+
+					let cid = hasher.digest("hex");
+
+					cids.push(cid)
+				})
+				stream.on("end", res)
+				stream.on("error", (e) => console.error(e))
+			})
+		}
+	}
+
+	return children
+}
+
 const createReadStreams = (paths: { path: string, cid: string }[]) => (paths.map(
-	({ path, cid }) => ({ cid, stream: fs.createReadStream(fsPath.join(__dirname, path), { highWaterMark: 1024 * 128 }) })
+	({ path, cid }) => ({ path, cid, stream: fs.createReadStream(fsPath.join(__dirname, path), { highWaterMark: 1024 * 128 }) })
 ))
 
 const uploadDirectory = async (path: string) => {
@@ -124,6 +149,8 @@ const uploadDirectory = async (path: string) => {
 
 	const metaData = getMetaDataForDir(fsPath.join(__dirname, path))
 	if (!metaData) return
+
+	metaData.children = await addCidsToChildren(metaData.children, path)
 
 	let entry = {
 		owner: PUBLIC_KEY,
@@ -149,6 +176,7 @@ const uploadDirectory = async (path: string) => {
 	for (let { stream, cid } of createReadStreams(metaData.children.map(({ name, cid }) => ({ path: fsPath.join(path, name), cid })))) {
 		await new Promise((res, rej) => {
 			stream.on("data", (chunk) => {
+				console.log(chunk.length)
 				let hasher = createHash("sha256")
 				hasher.update(chunk)
 

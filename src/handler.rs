@@ -154,37 +154,16 @@ impl ApiHandler {
                 signature,
                 public_key,
             }) => {
-                let pub_key = public_key.clone();
                 let key: String = format!("e_{}", signature.to_string());
-
-                let secp = Secp256k1::new();
-                let sig = Signature::from_str(&signature.clone()).unwrap();
-                let message = Message::from_hashed_data::<sha256::Hash>(
-                    format!("{}/{}", pub_key.to_string(), entry.name).as_bytes(),
-                );
 
                 let entry = Entry::new(signature, public_key.to_string(), entry);
                 let value = serde_json::to_vec(&entry).unwrap();
-                let k = Key::new(&key.clone());
-
-                match secp.verify_ecdsa(&message, &sig, &pub_key) {
-                    Err(_error) => {
-                        self.api_res_sender
-                            .send(DhtResponseType::PutRecord(DhtPutRecordResponse {
-                                signature: Some(key),
-                                error: Some("Invalid signature".to_string()),
-                            }))
-                            .unwrap();
-                        return Ok(());
-                    }
-                    _ => {}
-                }
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
                     .send(DhtEvent::PutRecord {
+                        key: Key::new(&key.clone()),
                         sender,
-                        key: k,
                         value,
                     })
                     .await
