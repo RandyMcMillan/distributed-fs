@@ -2,12 +2,8 @@ use futures::stream::StreamExt;
 use libp2p::kad::record::Key;
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
-use secp256k1::ecdsa::Signature;
-use secp256k1::hashes::sha256;
-use secp256k1::{Message, Secp256k1};
 use std::io::{BufReader, Read};
 use std::path::Path;
-use std::str::FromStr;
 use std::{fs, str};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
@@ -97,24 +93,6 @@ impl ApiHandler {
                 let loc = signature.clone();
 
                 let (key, location, _signature) = api::get_location_key(signature.clone()).unwrap();
-
-                let secp = Secp256k1::new();
-                let sig = Signature::from_str(&name.clone()).unwrap();
-                let message = Message::from_hashed_data::<sha256::Hash>(loc.clone().as_bytes());
-
-                match secp.verify_ecdsa(&message, &sig, &public_key) {
-                    Err(_error) => {
-                        self.api_res_sender
-                            .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
-                                entry: None,
-                                error: Some("Invalid signature".to_string()),
-                                location: None,
-                            }))
-                            .unwrap();
-                        return Ok(());
-                    }
-                    _ => {}
-                }
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender

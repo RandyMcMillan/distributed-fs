@@ -55,6 +55,7 @@ impl EntryMetaData {
                     name: item.name.clone(),
                     r#type: item.r#type.clone(),
                     cid: item.cid.clone(),
+                    size: 0
                 })
                 .collect::<Vec<ApiChildren>>();
         }
@@ -65,6 +66,7 @@ impl EntryMetaData {
                 name: item.name.clone(),
                 r#type: item.r#type.clone(),
                 cid: item.cid.clone(),
+                size: 0
             })
             .collect()
     }

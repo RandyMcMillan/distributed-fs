@@ -219,18 +219,51 @@ impl Service for MyApi {
     type GetStream = ReceiverStream<Result<GetResponse, Status>>;
 
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<Self::GetStream>, Status> {
-        let public_key = PublicKey::from_str(
-            request
-                .metadata()
-                .get("public_key")
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        )
-        .unwrap();
+        let format_err_ret = |error: String| {
+            Ok(GetResponse {
+                    download_response: Some(DownloadResponse::Metadata(
+                        GetResponseMetadata {
+                            entry: None,
+                            children: Vec::new(),
+                            success: false,
+                            error: Some(error)
+                        },
+                    ))
+            })
+        };
+        // Get Public_key from request metadata
+        let public_key: PublicKey = {
+            let pkey = match request.metadata().get("public_key") {
+                Some(pkey) => pkey,
+                None => return Err(Status::new(Code::Unknown, "No public_key provided")),
+            };
+
+            let pkey = match pkey.to_str() {
+                Ok(pkey) => pkey,
+                Err(_err) => return Err(Status::new(Code::Unknown, "Public_key must be str")),
+            };
+
+            match PublicKey::from_str(pkey) {
+                Ok(pkey) => pkey,
+                Err(_err) => return Err(Status::new(Code::Unknown, "Invalid public_key")),
+            }
+        };
 
         let request = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
+
+        let secp = Secp256k1::new();
+        let sig = Signature::from_str(&request.sig.clone()).unwrap();
+        let message = Message::from_hashed_data::<sha256::Hash>(request.location.clone().as_bytes());
+
+        match secp.verify_ecdsa(&message, &sig, &public_key) {
+            Err(_error) => {
+                tx.send(format_err_ret("Invalid signature".to_owned())).await.unwrap();
+
+                return Ok(Response::new(ReceiverStream::new(rx)));
+            }
+            _ => {}
+        };
 
         let dht_request = DhtRequestType::GetRecord(DhtGetRecordRequest {
             signature: request.location.to_owned(),
@@ -266,6 +299,8 @@ impl Service for MyApi {
                                 GetResponseMetadata {
                                     entry: None,
                                     children,
+                                    error: None,
+                                    success: true
                                 },
                             )),
                         }))

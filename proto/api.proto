@@ -36,6 +36,8 @@ message GetRequest {
 message GetResponseMetadata {
 	optional ApiEntry entry = 1;
 	repeated ApiChildren children = 2;
+	bool success = 3;
+	optional string error = 4;
 }
 
 message DownloadFile {
@@ -66,5 +68,6 @@ message GetResponse {
 	oneof download_response {
 		GetResponseMetadata metadata = 1;
 		DownloadFile file = 2;
+		string error = 3;
 	}
 }
