@@ -69,7 +69,7 @@ pub struct FileExchangeCodec();
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileRequestType {
     GetFileRequest(String),
-    ProvideRequest(String),
+    ProvideRequest(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

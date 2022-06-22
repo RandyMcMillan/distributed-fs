@@ -221,14 +221,12 @@ impl Service for MyApi {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<Self::GetStream>, Status> {
         let format_err_ret = |error: String| {
             Ok(GetResponse {
-                    download_response: Some(DownloadResponse::Metadata(
-                        GetResponseMetadata {
-                            entry: None,
-                            children: Vec::new(),
-                            success: false,
-                            error: Some(error)
-                        },
-                    ))
+                download_response: Some(DownloadResponse::Metadata(GetResponseMetadata {
+                    entry: None,
+                    children: Vec::new(),
+                    success: false,
+                    error: Some(error),
+                })),
             })
         };
         // Get Public_key from request metadata
@@ -254,11 +252,14 @@ impl Service for MyApi {
 
         let secp = Secp256k1::new();
         let sig = Signature::from_str(&request.sig.clone()).unwrap();
-        let message = Message::from_hashed_data::<sha256::Hash>(request.location.clone().as_bytes());
+        let message =
+            Message::from_hashed_data::<sha256::Hash>(request.location.clone().as_bytes());
 
         match secp.verify_ecdsa(&message, &sig, &public_key) {
             Err(_error) => {
-                tx.send(format_err_ret("Invalid signature".to_owned())).await.unwrap();
+                tx.send(format_err_ret("Invalid signature".to_owned()))
+                    .await
+                    .unwrap();
 
                 return Ok(Response::new(ReceiverStream::new(rx)));
             }
@@ -300,7 +301,7 @@ impl Service for MyApi {
                                     entry: None,
                                     children,
                                     error: None,
-                                    success: true
+                                    success: true,
                                 },
                             )),
                         }))

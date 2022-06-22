@@ -160,7 +160,16 @@ impl ApiHandler {
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
                         if !peers.is_empty() {
-                            let request = FileRequest(FileRequestType::ProvideRequest(key.clone()));
+                            let cids = entry
+                                .metadata
+                                .children
+                                .iter()
+                                .filter(|item| item.r#type == "file")
+                                .map(|item| item.cid.as_ref().unwrap().clone())
+                                .collect::<Vec<String>>();
+                            println!("cids: {:?}", cids);
+
+                            let request = FileRequest(FileRequestType::ProvideRequest(cids));
 
                             let (sender, receiver) = oneshot::channel();
                             self.dht_event_sender
@@ -205,7 +214,8 @@ impl ApiHandler {
         let FileRequest(r) = req;
 
         match r {
-            FileRequestType::ProvideRequest(key) => {
+            FileRequestType::ProvideRequest(cids) => {
+                let key = cids[0].clone();
                 let k = Key::from(key.as_bytes().to_vec());
                 let response = FileResponse(FileResponseType::ProvideResponse(
                     "Started providing".to_owned(),
