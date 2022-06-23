@@ -215,92 +215,54 @@ impl ApiHandler {
 
         match r {
             FileRequestType::ProvideRequest(cids) => {
-                let key = cids[0].clone();
-                let k = Key::from(key.as_bytes().to_vec());
                 let response = FileResponse(FileResponseType::ProvideResponse(
                     "Started providing".to_owned(),
                 ));
 
-                let (sender1, receiver1) = oneshot::channel();
+                let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
                     .send(DhtEvent::SendResponse {
-                        sender: sender1,
+                        sender,
                         response,
                         channel,
                     })
                     .await
                     .unwrap();
-                receiver1.await.unwrap().unwrap();
+                receiver.await.unwrap().unwrap();
 
-                let (sender2, receiver2) = oneshot::channel();
-                self.dht_event_sender
-                    .send(DhtEvent::StartProviding {
-                        key: k.clone(),
-                        sender: sender2,
-                    })
-                    .await
-                    .unwrap();
-                match receiver2.await.unwrap() {
-                    Err(error) => return Err(error),
-                    _ => {}
-                };
+                if !cids.is_empty() {
+                    let request = FileRequest(FileRequestType::GetFileRequest(cids));
 
-                let (sender3, receiver3) = oneshot::channel();
-                self.dht_event_sender
-                    .send(DhtEvent::GetRecord {
-                        key: k,
-                        sender: sender3,
-                    })
-                    .await
-                    .unwrap();
-                match receiver3.await.unwrap() {
-                    Ok(record) => {
-                        let entry: Entry =
-                            serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
-                        println!("{:#?}", entry);
+                    let (sender, receiver) = oneshot::channel();
+                    self.dht_event_sender
+                        .send(DhtEvent::SendRequest {
+                            sender,
+                            request,
+                            peer,
+                        })
+                        .await
+                        .unwrap();
+                    match receiver.await.unwrap() {
+                        Ok(response) => match response.0 {
+                            FileResponseType::GetFileResponse(GetFileResponse { cid, content }) => {
+                                let p = format!("./cache/2/{}", cid);
+                                let path = Path::new(&p);
 
-                        if !entry.metadata.children.is_empty() {
-                            let get_cid = entry.metadata.children[0].cid.as_ref().unwrap();
-                            let request =
-                                FileRequest(FileRequestType::GetFileRequest(get_cid.to_owned()));
-
-                            let (sender, receiver) = oneshot::channel();
-                            self.dht_event_sender
-                                .send(DhtEvent::SendRequest {
-                                    sender,
-                                    request,
-                                    peer,
-                                })
-                                .await
-                                .unwrap();
-                            match receiver.await.unwrap() {
-                                Ok(response) => match response.0 {
-                                    FileResponseType::GetFileResponse(GetFileResponse {
-                                        cid,
-                                        content,
-                                    }) => {
-                                        let p = format!("./cache/2/{}", cid);
-                                        let path = Path::new(&p);
-
-                                        match fs::write(path, content) {
-                                            Err(error) => {
-                                                eprint!("error while writing file...\n {}", error)
-                                            }
-                                            _ => {}
-                                        };
+                                match fs::write(path, content) {
+                                    Err(error) => {
+                                        eprint!("error while writing file...\n {}", error)
                                     }
                                     _ => {}
-                                },
-                                Err(error) => eprint!("Error while sending request: {}", error),
+                                };
                             }
-                        }
+                            _ => {}
+                        },
+                        Err(error) => eprint!("Error while sending request: {}", error),
                     }
-                    Err(error) => {
-                        eprintln!("Error while getting record: {:?}", error);
-                    }
-                };
+                }
             }
-            FileRequestType::GetFileRequest(cid) => {
+            FileRequestType::GetFileRequest(cids) => {
+                let cid = cids[0].clone();
                 let location = format!("./cache/{}", cid.clone());
 
                 let content = {
