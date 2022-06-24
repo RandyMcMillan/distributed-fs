@@ -77,8 +77,8 @@ pub struct FileRequest(pub FileRequestType);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GetFileResponse {
-    pub content: Vec<u8>,
-    pub cid: String,
+    pub content: Vec<Vec<u8>>,
+    pub cids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

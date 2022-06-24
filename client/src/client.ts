@@ -159,6 +159,7 @@ const uploadDirectory = async (path: string) => {
 		children: metaData?.children,
 		name: metaData.name
 	}
+	console.log(entry.children)
 
 	let request = {
 		metadata: {

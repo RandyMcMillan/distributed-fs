@@ -215,6 +215,7 @@ impl ApiHandler {
 
         match r {
             FileRequestType::ProvideRequest(cids) => {
+                println!("{:#?}", cids);
                 let response = FileResponse(FileResponseType::ProvideResponse(
                     "Started providing".to_owned(),
                 ));
@@ -244,16 +245,18 @@ impl ApiHandler {
                         .unwrap();
                     match receiver.await.unwrap() {
                         Ok(response) => match response.0 {
-                            FileResponseType::GetFileResponse(GetFileResponse { cid, content }) => {
-                                let p = format!("./cache/2/{}", cid);
-                                let path = Path::new(&p);
+                            FileResponseType::GetFileResponse(GetFileResponse { cids, content }) => {
+                                for (i, cid) in cids.iter().enumerate() {
+                                    let p = format!("./cache/2/{}", cid);
+                                    let path = Path::new(&p);
 
-                                match fs::write(path, content) {
-                                    Err(error) => {
-                                        eprint!("error while writing file...\n {}", error)
-                                    }
-                                    _ => {}
-                                };
+                                    match fs::write(path, content[i].clone()) {
+                                        Err(error) => {
+                                            eprint!("error while writing file...\n {}", error)
+                                        }
+                                        _ => {}
+                                    };
+                                }
                             }
                             _ => {}
                         },
@@ -262,27 +265,32 @@ impl ApiHandler {
                 }
             }
             FileRequestType::GetFileRequest(cids) => {
-                let cid = cids[0].clone();
-                let location = format!("./cache/{}", cid.clone());
+                let mut content = Vec::new();
 
-                let content = {
-                    if Path::new(&location).exists() {
-                        let f = fs::File::open(&location).unwrap();
-                        let mut reader = BufReader::new(f);
-                        let mut buffer = Vec::new();
+                for cid in cids.clone() {
+                    let location = format!("./cache/{}", cid.clone());
 
-                        reader.read_to_end(&mut buffer).unwrap();
+                    let c = {
+                        if Path::new(&location).exists() {
+                            let f = fs::File::open(&location).unwrap();
+                            let mut reader = BufReader::new(f);
+                            let mut buffer = Vec::new();
 
-                        buffer
-                    } else {
-                        println!("doesn't exists");
-                        Vec::new()
-                    }
-                };
+                            reader.read_to_end(&mut buffer).unwrap();
+
+                            buffer
+                        } else {
+                            println!("doesn't exists");
+                            Vec::new()
+                        }
+                    };
+
+                    content.push(c);
+                }
 
                 let response = FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
                     content,
-                    cid,
+                    cids,
                 }));
 
                 let (sender, receiver) = oneshot::channel();
