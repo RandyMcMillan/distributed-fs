@@ -110,7 +110,7 @@ impl RequestResponseCodec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 1_000_000).await?;
+        let vec = read_length_prefixed(io, 2_000_000).await?;
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
@@ -129,15 +129,13 @@ impl RequestResponseCodec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 1_000_000).await?;
+        let vec = read_length_prefixed(io, 2_000_000).await.unwrap();
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
         }
 
         let req: FileResponse = serde_json::from_str(&str::from_utf8(&vec).unwrap()).unwrap();
-        // println!("Read response, {:?}", req);
-
         Ok(req)
     }
 

@@ -39,7 +39,7 @@ impl EntryMetaData {
                 .map(|child| Children {
                     name: child.name.clone(),
                     r#type: child.r#type.clone(),
-                    cid: child.cid.clone(),
+                    cids: child.cids.clone(),
                 })
                 .collect(),
         }
@@ -54,8 +54,8 @@ impl EntryMetaData {
                 .map(|item| ApiChildren {
                     name: item.name.clone(),
                     r#type: item.r#type.clone(),
-                    cid: item.cid.clone(),
                     size: 0,
+                    cids: item.cids.clone(),
                 })
                 .collect::<Vec<ApiChildren>>();
         }
@@ -65,8 +65,8 @@ impl EntryMetaData {
             .map(|item| ApiChildren {
                 name: item.name.clone(),
                 r#type: item.r#type.clone(),
-                cid: item.cid.clone(),
                 size: 0,
+                cids: item.cids.clone(),
             })
             .collect()
     }
@@ -76,5 +76,5 @@ impl EntryMetaData {
 pub struct Children {
     pub name: String,
     pub r#type: String,
-    pub cid: Option<String>,
+    pub cids: Vec<String>,
 }

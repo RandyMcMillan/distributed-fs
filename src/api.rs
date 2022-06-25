@@ -375,14 +375,14 @@ pub fn resolve_cid(location: String, metadata: Vec<Children>) -> Result<Vec<Chil
             return Err("Nested entry selected".to_string());
         }
 
-        cids.push(child.cid.as_ref().unwrap().to_string());
+        cids.append(&mut child.cids.clone());
     } else {
         for child in metadata.iter() {
             if child.r#type == "file".to_owned() && child.name.starts_with(&location) {
                 let next_char = child.name.chars().nth(location.len()).unwrap().to_string();
 
                 if next_char == "/".to_string() {
-                    cids.push(child.cid.as_ref().unwrap().to_string());
+                    cids.append(&mut child.cids.clone());
                 }
             }
         }
@@ -391,7 +391,7 @@ pub fn resolve_cid(location: String, metadata: Vec<Children>) -> Result<Vec<Chil
     Ok(metadata
         .into_iter()
         .filter(|child| {
-            child.r#type == "file".to_string() && cids.contains(&child.cid.as_ref().unwrap())
+            child.r#type == "file".to_string() && child.cids.iter().all(|cid| cids.contains(cid))
         })
         .collect())
 }
@@ -406,35 +406,37 @@ async fn download_file(
     let download_children = resolve_cid(location, entry.metadata.children).unwrap();
 
     for download_item in download_children.iter() {
-        let location = format!("./cache/{}", download_item.cid.as_ref().unwrap());
+        for cid in download_item.cids.clone() {
+            let location = format!("./cache/{}", cid.clone());
 
-        if Path::new(&location).exists() {
-            let file = fs::File::open(&location).unwrap();
+            if Path::new(&location).exists() {
+                let file = fs::File::open(&location).unwrap();
 
-            let mut reader = BufReader::with_capacity(CAP, file);
+                let mut reader = BufReader::with_capacity(CAP, file);
 
-            loop {
-                let buffer = reader.fill_buf().unwrap();
-                let length = buffer.len();
+                loop {
+                    let buffer = reader.fill_buf().unwrap();
+                    let length = buffer.len();
 
-                if length == 0 {
-                    break;
-                } else {
-                    tx.send(Ok(GetResponse {
-                        download_response: Some(DownloadResponse::File(DownloadFile {
-                            content: buffer.to_vec(),
-                            cid: download_item.cid.as_ref().unwrap().to_string(),
-                            name: download_item.name.clone(),
-                        })),
-                    }))
-                    .await
-                    .unwrap();
+                    if length == 0 {
+                        break;
+                    } else {
+                        tx.send(Ok(GetResponse {
+                            download_response: Some(DownloadResponse::File(DownloadFile {
+                                content: buffer.to_vec(),
+                                cid: cid.clone(),
+                                name: download_item.name.clone(),
+                            })),
+                        }))
+                        .await
+                        .unwrap();
+                    }
+
+                    reader.consume(length);
                 }
-
-                reader.consume(length);
+            } else {
+                eprintln!("File does not exists");
             }
-        } else {
-            eprintln!("File does not exists");
         }
     }
 }

@@ -165,7 +165,7 @@ impl ApiHandler {
                                 .children
                                 .iter()
                                 .filter(|item| item.r#type == "file")
-                                .map(|item| item.cid.as_ref().unwrap().clone())
+                                .flat_map(|item| item.cids.clone())
                                 .collect::<Vec<String>>();
                             println!("cids: {:?}", cids);
 
@@ -215,7 +215,6 @@ impl ApiHandler {
 
         match r {
             FileRequestType::ProvideRequest(cids) => {
-                println!("{:#?}", cids);
                 let response = FileResponse(FileResponseType::ProvideResponse(
                     "Started providing".to_owned(),
                 ));
@@ -230,7 +229,7 @@ impl ApiHandler {
                     .await
                     .unwrap();
                 receiver.await.unwrap().unwrap();
-
+                println!("{:#?}", cids);
                 if !cids.is_empty() {
                     let request = FileRequest(FileRequestType::GetFileRequest(cids));
 
@@ -245,7 +244,11 @@ impl ApiHandler {
                         .unwrap();
                     match receiver.await.unwrap() {
                         Ok(response) => match response.0 {
-                            FileResponseType::GetFileResponse(GetFileResponse { cids, content }) => {
+                            FileResponseType::GetFileResponse(GetFileResponse {
+                                cids,
+                                content,
+                            }) => {
+                                println!("{:#?}", cids);
                                 for (i, cid) in cids.iter().enumerate() {
                                     let p = format!("./cache/2/{}", cid);
                                     let path = Path::new(&p);
@@ -304,7 +307,9 @@ impl ApiHandler {
                     .unwrap();
                 match receiver.await.unwrap() {
                     Ok(_) => {}
-                    Err(_error) => {}
+                    Err(_error) => {
+                        println!("{:?}", _error);
+                    }
                 };
             }
         }
