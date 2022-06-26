@@ -136,6 +136,7 @@ impl ApiHandler {
 
                 let entry = Entry::new(signature, public_key.to_string(), entry);
                 let value = serde_json::to_vec(&entry).unwrap();
+                println!("{:#?}", entry);
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
@@ -165,9 +166,16 @@ impl ApiHandler {
                                 .children
                                 .iter()
                                 .filter(|item| item.r#type == "file")
-                                .flat_map(|item| item.cids.clone())
+                                .flat_map(|item| {
+                                    println!("{:#?}", item.cids);
+                                    use crate::constants::MAX_CHUNK_SIZE;
+                                    for i in 0..item.cids.len() {
+                                        println!("Cid: {}, size: {}", item.cids[i], item.size / MAX_CHUNK_SIZE)
+                                        // println!("Cid: {}, size: {}", item.cids[i], item.size - (item.size % MAX_CHUNK_SIZE * i))
+                                    }
+                                    item.cids.clone()
+                                })
                                 .collect::<Vec<String>>();
-                            println!("cids: {:?}", cids);
 
                             let request = FileRequest(FileRequestType::ProvideRequest(cids));
 
@@ -231,39 +239,40 @@ impl ApiHandler {
                 receiver.await.unwrap().unwrap();
                 println!("{:#?}", cids);
                 if !cids.is_empty() {
-                    let request = FileRequest(FileRequestType::GetFileRequest(cids));
+                    for cid in cids {
+                        let request = FileRequest(FileRequestType::GetFileRequest(vec![cid]));
 
-                    let (sender, receiver) = oneshot::channel();
-                    self.dht_event_sender
-                        .send(DhtEvent::SendRequest {
-                            sender,
-                            request,
-                            peer,
-                        })
-                        .await
-                        .unwrap();
-                    match receiver.await.unwrap() {
-                        Ok(response) => match response.0 {
-                            FileResponseType::GetFileResponse(GetFileResponse {
-                                cids,
-                                content,
-                            }) => {
-                                println!("{:#?}", cids);
-                                for (i, cid) in cids.iter().enumerate() {
-                                    let p = format!("./cache/2/{}", cid);
-                                    let path = Path::new(&p);
+                        let (sender, receiver) = oneshot::channel();
+                        self.dht_event_sender
+                            .send(DhtEvent::SendRequest {
+                                sender,
+                                request,
+                                peer,
+                            })
+                            .await
+                            .unwrap();
+                        match receiver.await.unwrap() {
+                            Ok(response) => match response.0 {
+                                FileResponseType::GetFileResponse(GetFileResponse {
+                                    cids,
+                                    content,
+                                }) => {
+                                    for (i, cid) in cids.iter().enumerate() {
+                                        let p = format!("./cache/2/{}", cid);
+                                        let path = Path::new(&p);
 
-                                    match fs::write(path, content[i].clone()) {
-                                        Err(error) => {
-                                            eprint!("error while writing file...\n {}", error)
-                                        }
-                                        _ => {}
-                                    };
+                                        match fs::write(path, content[i].clone()) {
+                                            Err(error) => {
+                                                eprint!("error while writing file...\n {}", error)
+                                            }
+                                            _ => {}
+                                        };
+                                    }
                                 }
-                            }
-                            _ => {}
-                        },
-                        Err(error) => eprint!("Error while sending request: {}", error),
+                                _ => {}
+                            },
+                            Err(error) => eprint!("Error while sending request: {}", error),
+                        }
                     }
                 }
             }

@@ -41,21 +41,18 @@ pub enum OutEvent {
 
 impl From<RequestResponseEvent<FileRequest, FileResponse>> for OutEvent {
     fn from(event: RequestResponseEvent<FileRequest, FileResponse>) -> Self {
-        // println!("Request_response event: {:?}", event);
         Self::RequestResponse(event)
     }
 }
 
 impl From<KademliaEvent> for OutEvent {
     fn from(event: KademliaEvent) -> Self {
-        // println!("Kademlia Event: {:?}", event);
         Self::Kademlia(event)
     }
 }
 
 impl From<MdnsEvent> for OutEvent {
     fn from(event: MdnsEvent) -> Self {
-        // println!("MDNS: {:?}", event);
         Self::Mdns(event)
     }
 }
@@ -129,7 +126,7 @@ impl RequestResponseCodec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 2_000_000).await.unwrap();
+        let vec = read_length_prefixed(io, 1_000_000).await.unwrap();
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());

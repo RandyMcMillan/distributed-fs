@@ -66,12 +66,14 @@ const downloadFile = async () => {
 }
 
 type Type = "file" | "directory"
-type Children = { type: Type, name: string, cid: string, entry: null, cids: string[] }[]
+type Children = { type: Type, name: string, entry: null, cids: string[], size: number }[]
 
 interface MetaData {
 	name: string
 	children: Children
 }
+
+const MAX_CHUNK_SIZE = 1024 * 256
 
 const getMetaDataForDir = (path: string): null | MetaData => {
 	if (!fs.existsSync(path)) return null
@@ -100,9 +102,9 @@ const getMetaDataForDir = (path: string): null | MetaData => {
 				children.push({
 					name: fsPath.join(basePath, entry),
 					type: "file",
-					cid,
 					entry: null,
-					cids: []
+					cids: [],
+					size: data.length
 				})
 			}
 		})
@@ -119,7 +121,7 @@ const addCidsToChildren = async (children: Children, path: string): Promise<Chil
 	for (const { name, type, cids } of children) {
 		if (type === "file") {
 			const filePath = fsPath.join(path, name),
-				stream = fs.createReadStream(fsPath.join(__dirname, filePath), { highWaterMark: 1024 * 128 })
+				stream = fs.createReadStream(fsPath.join(__dirname, filePath), { highWaterMark: MAX_CHUNK_SIZE })
 
 			await new Promise((res, rej) => {
 				stream.on("data", (chunk) => {
@@ -139,8 +141,8 @@ const addCidsToChildren = async (children: Children, path: string): Promise<Chil
 	return children
 }
 
-const createReadStreams = (paths: { path: string, cid: string }[]) => (paths.map(
-	({ path, cid }) => ({ path, cid, stream: fs.createReadStream(fsPath.join(__dirname, path), { highWaterMark: 1024 * 128 }) })
+const createReadStreams = (paths: { path: string }[]) => (paths.map(
+	({ path }) => ({ path, stream: fs.createReadStream(fsPath.join(__dirname, path), { highWaterMark: MAX_CHUNK_SIZE }) })
 ))
 
 const uploadDirectory = async (path: string) => {
@@ -174,7 +176,7 @@ const uploadDirectory = async (path: string) => {
 
 	await call.write(request)
 
-	for (let { stream, cid } of createReadStreams(metaData.children.map(({ name, cid }) => ({ path: fsPath.join(path, name), cid })))) {
+	for (let { stream } of createReadStreams(metaData.children.map(({ name }) => ({ path: fsPath.join(path, name) })))) {
 		await new Promise((res, rej) => {
 			stream.on("data", (chunk) => {
 				console.log(chunk.length)

@@ -40,6 +40,7 @@ impl EntryMetaData {
                     name: child.name.clone(),
                     r#type: child.r#type.clone(),
                     cids: child.cids.clone(),
+                    size: child.size,
                 })
                 .collect(),
         }
@@ -77,4 +78,5 @@ pub struct Children {
     pub name: String,
     pub r#type: String,
     pub cids: Vec<String>,
+    pub size: i32,
 }
