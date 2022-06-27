@@ -15,11 +15,11 @@ mod service {
 
 mod api;
 mod behaviour;
+mod constants;
 mod entry;
 mod event_loop;
 mod handler;
 mod swarm;
-mod constants;
 
 use api::{DhtRequestType, DhtResponseType, MyApi};
 use swarm::ManagedSwarm;

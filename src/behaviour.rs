@@ -13,6 +13,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::{iter, str};
+use crate::constants::MAX_REQUEST_SIZE;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]
@@ -66,7 +67,7 @@ pub struct FileExchangeCodec();
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileRequestType {
     GetFileRequest(Vec<String>),
-    ProvideRequest(Vec<String>),
+    ProvideRequest(Vec<(String, i32)>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,7 +108,7 @@ impl RequestResponseCodec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 2_000_000).await?;
+        let vec = read_length_prefixed(io, MAX_REQUEST_SIZE.try_into().unwrap()).await?;
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
@@ -126,7 +127,7 @@ impl RequestResponseCodec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 1_000_000).await.unwrap();
+        let vec = read_length_prefixed(io, 2_000_000).await.unwrap();
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
