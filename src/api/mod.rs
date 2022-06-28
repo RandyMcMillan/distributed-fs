@@ -1,24 +1,25 @@
+pub mod utils;
+
 use futures::stream::StreamExt;
-use libp2p::kad::record::Key;
 use secp256k1::ecdsa::Signature;
 use secp256k1::hashes::sha256;
 use secp256k1::{Message, PublicKey, Secp256k1};
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Code, Request, Response, Status};
 
-use crate::entry::{Children, Entry};
+use crate::entry::Entry;
 use crate::service::service_server::Service;
 use crate::service::{
-    get_response::DownloadResponse, put_request::UploadRequest, ApiEntry, DownloadFile, GetRequest,
-    GetResponse, GetResponseMetadata, PutRequest, PutRequestMetadata, PutResponse,
+    get_response::DownloadResponse, put_request::UploadRequest, ApiEntry, GetRequest, GetResponse,
+    GetResponseMetadata, PutRequest, PutRequestMetadata, PutResponse,
 };
-use tonic::{Code, Request, Response, Status};
+use utils::{download_file, get_cids_with_sizes, resolve_cid, split_get_file_request};
 
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordRequest {
@@ -221,14 +222,10 @@ impl Service for MyApi {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<Self::GetStream>, Status> {
         let format_err_ret = |error: String| {
             Ok(GetResponse {
-                download_response: Some(DownloadResponse::Metadata(GetResponseMetadata {
-                    entry: None,
-                    children: Vec::new(),
-                    success: false,
-                    error: Some(error),
-                })),
+                download_response: Some(DownloadResponse::Error(error)),
             })
         };
+        let (res_sender, res_receiver) = mpsc::channel(4);
         // Get Public_key from request metadata
         let public_key: PublicKey = {
             let pkey = match request.metadata().get("public_key") {
@@ -248,7 +245,6 @@ impl Service for MyApi {
         };
 
         let request = request.into_inner();
-        let (tx, rx) = mpsc::channel(4);
 
         let secp = Secp256k1::new();
         let sig = Signature::from_str(&request.sig.clone()).unwrap();
@@ -257,11 +253,12 @@ impl Service for MyApi {
 
         match secp.verify_ecdsa(&message, &sig, &public_key) {
             Err(_error) => {
-                tx.send(format_err_ret("Invalid signature".to_owned()))
+                res_sender
+                    .send(format_err_ret("Invalid signature".to_owned()))
                     .await
                     .unwrap();
 
-                return Ok(Response::new(ReceiverStream::new(rx)));
+                return Ok(Response::new(ReceiverStream::new(res_receiver)));
             }
             _ => {}
         };
@@ -277,13 +274,15 @@ impl Service for MyApi {
             Ok(dht_response) => match dht_response {
                 DhtResponseType::GetRecord(dht_get_response) => {
                     if let Some(message) = dht_get_response.error {
-                        return Err(Status::new(Code::Unauthenticated, message));
+                        res_sender.send(format_err_ret(message)).await.unwrap();
+
+                        return Ok(Response::new(ReceiverStream::new(res_receiver)));
                     }
 
                     let entry = dht_get_response.entry.unwrap();
                     if request.download {
                         tokio::spawn(async move {
-                            download_file(dht_get_response.location.unwrap(), entry, tx).await;
+                            download_data(dht_get_response.location.unwrap(), entry, res_sender)
                         });
                     } else {
                         let children = {
@@ -295,18 +294,19 @@ impl Service for MyApi {
                             }
                         };
 
-                        tx.send(Ok(GetResponse {
-                            download_response: Some(DownloadResponse::Metadata(
-                                GetResponseMetadata {
-                                    entry: None,
-                                    children,
-                                    error: None,
-                                    success: true,
-                                },
-                            )),
-                        }))
-                        .await
-                        .unwrap();
+                        res_sender
+                            .send(Ok(GetResponse {
+                                download_response: Some(DownloadResponse::Metadata(
+                                    GetResponseMetadata {
+                                        entry: None,
+                                        children,
+                                        error: None,
+                                        success: true,
+                                    },
+                                )),
+                            }))
+                            .await
+                            .unwrap();
                     }
                 }
                 _ => {
@@ -318,125 +318,29 @@ impl Service for MyApi {
             }
         };
 
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(ReceiverStream::new(res_receiver)))
     }
 }
 
-pub fn get_location_key(input_location: String) -> Result<(Key, String, String), String> {
-    let mut key_idx: usize = 0;
-    let mut found = false;
-
-    let input_location = {
-        if input_location.ends_with("/") {
-            input_location[..input_location.len() - 1].to_string()
-        } else {
-            input_location
-        }
-    };
-
-    let parts: Vec<String> = input_location.split("/").map(|s| s.to_string()).collect();
-
-    for (idx, part) in parts.iter().rev().enumerate() {
-        if part.starts_with("e_") {
-            key_idx = parts.len() - idx - 1;
-            found = true;
-            break;
-        }
-    }
-
-    if !found {
-        return Err("No signature key found".to_string());
-    }
-
-    let signature = &parts[key_idx].clone()[2..];
-
-    let location = {
-        if key_idx == parts.len() - 1 {
-            "/".to_owned()
-        } else {
-            parts[(key_idx + 1)..].join("/")
-        }
-    };
-    Ok((Key::new(&parts[key_idx]), location, signature.to_string()))
-}
-
-pub fn resolve_cid(location: String, metadata: Vec<Children>) -> Result<Vec<Children>, String> {
-    let mut cids = Vec::<String>::new();
-
-    if location == "/".to_string() {
-        return Ok(metadata
-            .into_iter()
-            .filter(|child| child.r#type == "file".to_string())
-            .collect());
-    }
-
-    if let Some(child) = metadata.iter().find(|child| child.name == location) {
-        if child.r#type != "file".to_string() {
-            return Err("Nested entry selected".to_string());
-        }
-
-        cids.append(&mut child.cids.clone());
-    } else {
-        for child in metadata.iter() {
-            if child.r#type == "file".to_owned() && child.name.starts_with(&location) {
-                let next_char = child.name.chars().nth(location.len()).unwrap().to_string();
-
-                if next_char == "/".to_string() {
-                    cids.append(&mut child.cids.clone());
-                }
-            }
-        }
-    }
-
-    Ok(metadata
-        .into_iter()
-        .filter(|child| {
-            child.r#type == "file".to_string() && child.cids.iter().all(|cid| cids.contains(cid))
-        })
-        .collect())
-}
-
-async fn download_file(
+async fn download_data(
     location: String,
     entry: Entry,
-    tx: mpsc::Sender<Result<GetResponse, Status>>,
+    res_sender: mpsc::Sender<Result<GetResponse, Status>>,
 ) {
-    const CAP: usize = 1024 * 128;
-
-    let download_children = resolve_cid(location, entry.metadata.children).unwrap();
-
-    for download_item in download_children.iter() {
-        for cid in download_item.cids.clone() {
+    let download_children = resolve_cid(location.clone(), entry.metadata.children.clone()).unwrap();
+    let mut download_cids_with_sizes = get_cids_with_sizes(download_children);
+    download_cids_with_sizes = download_cids_with_sizes
+        .iter()
+        .filter(|(cid, _)| {
             let location = format!("./cache/{}", cid.clone());
+            !Path::new(&location).exists()
+        })
+        .map(|(cid, size)| (cid.clone(), *size))
+        .collect::<Vec<(String, i32)>>();
 
-            if Path::new(&location).exists() {
-                let file = fs::File::open(&location).unwrap();
-
-                let mut reader = BufReader::with_capacity(CAP, file);
-
-                loop {
-                    let buffer = reader.fill_buf().unwrap();
-                    let length = buffer.len();
-
-                    if length == 0 {
-                        break;
-                    } else {
-                        tx.send(Ok(GetResponse {
-                            download_response: Some(DownloadResponse::File(DownloadFile {
-                                content: buffer.to_vec(),
-                                cid: cid.clone(),
-                                name: download_item.name.clone(),
-                            })),
-                        }))
-                        .await
-                        .unwrap();
-                    }
-
-                    reader.consume(length);
-                }
-            } else {
-                eprintln!("File does not exists");
-            }
-        }
+    for req_cids in split_get_file_request(download_cids_with_sizes) {
+        println!("Req: {:?}", req_cids);
     }
+
+    download_file(location, entry, res_sender).await;
 }

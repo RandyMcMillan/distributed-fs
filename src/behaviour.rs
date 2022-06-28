@@ -1,3 +1,4 @@
+use crate::constants::MAX_REQUEST_SIZE;
 use async_std::io;
 use async_trait::async_trait;
 use futures::prelude::*;
@@ -13,7 +14,6 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 use std::{iter, str};
-use crate::constants::MAX_REQUEST_SIZE;
 
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]

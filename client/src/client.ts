@@ -43,14 +43,14 @@ const downloadFile = async () => {
 		{
 			location: "e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/",
 			sig,
-			download: true
+			download: false
 		},
 		meta
 	)
 
 	await clearDir("../download")
 	call.on("data", (res: any) => {
-		// console.log(res[res.download_response])
+		 console.log(res[res.download_response])
 		if (res.download_response === "file") {
 			const folderPath = fsPath.join("./download", fsPath.dirname(res[res.download_response].name));
 			if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
@@ -194,5 +194,5 @@ const uploadDirectory = async (path: string) => {
 	await call.end()
 }
 
-uploadDirectory("../test/Hello")
-//downloadFile()
+//uploadDirectory("../test/Hello")
+downloadFile()

@@ -7,9 +7,8 @@ use std::path::Path;
 use std::{fs, str};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
-use crate::constants::MAX_REQUEST_SIZE;
 
-use crate::api;
+use crate::api::utils::{get_cids_with_sizes, get_location_key, split_get_file_request};
 use crate::api::{
     DhtGetRecordRequest, DhtGetRecordResponse, DhtPutRecordRequest, DhtPutRecordResponse,
     DhtRequestType, DhtResponseType,
@@ -93,7 +92,7 @@ impl ApiHandler {
             }) => {
                 let loc = signature.clone();
 
-                let (key, location, _signature) = api::get_location_key(signature.clone()).unwrap();
+                let (key, location, _signature) = get_location_key(signature.clone()).unwrap();
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
@@ -162,27 +161,7 @@ impl ApiHandler {
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
                         if !peers.is_empty() {
-                            let cids_with_sizes = entry
-                                .metadata
-                                .children
-                                .iter()
-                                .filter(|item| item.r#type == "file")
-                                .flat_map(|item| {
-                                    use crate::constants::MAX_CHUNK_SIZE;
-                                    use std::cmp;
-
-                                    let mut current_cids = Vec::new();
-                                    for i in 0..item.cids.len() {
-                                        let chunk_size = cmp::min(
-                                            MAX_CHUNK_SIZE,
-                                            item.size - (i as i32 * MAX_CHUNK_SIZE),
-                                        );
-
-                                        current_cids.push((item.cids[i].clone(), chunk_size))
-                                    }
-                                    current_cids
-                                })
-                                .collect::<Vec<(String, i32)>>();
+                            let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
 
                             let request =
                                 FileRequest(FileRequestType::ProvideRequest(cids_with_sizes));
@@ -288,7 +267,6 @@ impl ApiHandler {
             FileRequestType::GetFileRequest(cids) => {
                 let mut content = Vec::new();
 
-                let mut size = 0i32;
                 for cid in cids.clone() {
                     let location = format!("./cache/{}", cid.clone());
 
@@ -299,8 +277,6 @@ impl ApiHandler {
                             let mut buffer = Vec::new();
 
                             reader.read_to_end(&mut buffer).unwrap();
-                            println!("{:?}", buffer.len());
-                            size += buffer.len() as i32;
 
                             buffer
                         } else {
@@ -311,8 +287,6 @@ impl ApiHandler {
 
                     content.push(c);
                 }
-
-                println!("size:{}", size);
 
                 let response = FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
                     content,
@@ -339,36 +313,4 @@ impl ApiHandler {
 
         Ok(())
     }
-}
-
-fn split_get_file_request(mut cids: Vec<(String, i32)>) -> Vec<Vec<String>> {
-    let mut reqs = Vec::new();
-    let mut curr_size_count = 0i32;
-    let mut curr_cids = Vec::<String>::new();
-    let mut total_size  = 0i32;
-
-    cids.sort_by(|a, b| a.1.cmp(&b.1));
-    for (cid, size) in cids {
-        if curr_size_count + size > MAX_REQUEST_SIZE {
-            // Should never be empty, only if MAX_REQUEST_SIZE < MAX_CHUNK_SIZE
-            if !curr_cids.is_empty(){
-                reqs.push(curr_cids.clone());
-                curr_cids.clear();
-            }
-            curr_size_count = 0
-        } else {
-            curr_size_count += size
-        }
-        total_size += size;
-
-        curr_cids.push(cid);
-    }
-
-    if !curr_cids.is_empty() {
-        reqs.push(curr_cids.clone())
-    }
-
-    println!("{}", total_size);
-
-    reqs
 }
