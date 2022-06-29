@@ -279,10 +279,21 @@ impl Service for MyApi {
                         return Ok(Response::new(ReceiverStream::new(res_receiver)));
                     }
 
-                    let entry = dht_get_response.entry.unwrap();
+                    let (has_access, entry) = user_has_access(dht_get_response.entry.unwrap(), public_key);
+                    if !has_access {
+                        res_sender
+                            .send(format_err_ret("No access allowed".to_owned()))
+                            .await
+                            .unwrap();
+
+                        return Ok(Response::new(ReceiverStream::new(res_receiver)));
+                    }
+
                     if request.download {
                         tokio::spawn(async move {
-                            download_data(dht_get_response.location.unwrap(), entry, res_sender)
+                            let location = dht_get_response.location.unwrap();
+                            download_data(location.clone(), entry.clone()).await;
+                            download_file(location, entry, res_sender).await;
                         });
                     } else {
                         let children = {
@@ -325,22 +336,29 @@ impl Service for MyApi {
 async fn download_data(
     location: String,
     entry: Entry,
-    res_sender: mpsc::Sender<Result<GetResponse, Status>>,
 ) {
     let download_children = resolve_cid(location.clone(), entry.metadata.children.clone()).unwrap();
     let mut download_cids_with_sizes = get_cids_with_sizes(download_children);
     download_cids_with_sizes = download_cids_with_sizes
-        .iter()
+        .into_iter()
         .filter(|(cid, _)| {
             let location = format!("./cache/{}", cid.clone());
             !Path::new(&location).exists()
         })
-        .map(|(cid, size)| (cid.clone(), *size))
-        .collect::<Vec<(String, i32)>>();
+        .collect();
 
     for req_cids in split_get_file_request(download_cids_with_sizes) {
         println!("Req: {:?}", req_cids);
+    };
+}
+
+fn user_has_access(
+    entry: Entry,
+    public_key: PublicKey
+) -> (bool, Entry) {
+    if entry.public {
+        return (true, entry)
     }
 
-    download_file(location, entry, res_sender).await;
+    (entry.read_users.contains(&public_key.to_string()), entry)
 }

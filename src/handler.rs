@@ -136,7 +136,6 @@ impl ApiHandler {
 
                 let entry = Entry::new(signature, public_key.to_string(), entry);
                 let value = serde_json::to_vec(&entry).unwrap();
-                println!("{:#?}", entry);
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
