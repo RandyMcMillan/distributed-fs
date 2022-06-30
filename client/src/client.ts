@@ -194,5 +194,5 @@ const uploadDirectory = async (path: string) => {
 	await call.end()
 }
 
-//uploadDirectory("../test/Hello")
-downloadFile()
+uploadDirectory("../test/Hello")
+//downloadFile()

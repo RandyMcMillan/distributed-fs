@@ -29,6 +29,8 @@ pub struct ApiHandler {
     requests_receiver: mpsc::Receiver<ReqResEvent>,
     // DHT events for eventloop sender
     dht_event_sender: mpsc::Sender<DhtEvent>,
+    // State of stored chunks
+    storage_state: StorageState
 }
 
 impl ApiHandler {
@@ -52,6 +54,7 @@ impl ApiHandler {
             api_res_sender,
             requests_receiver,
             dht_event_sender,
+            storage_state: Default::default()
         }
     }
 
@@ -132,6 +135,7 @@ impl ApiHandler {
                 signature,
                 public_key,
             }) => {
+                println!("Put request");
                 let key: String = format!("e_{}", signature.to_string());
 
                 let entry = Entry::new(signature, public_key.to_string(), entry);
@@ -148,6 +152,7 @@ impl ApiHandler {
                     .unwrap();
                 let res = match receiver.await.unwrap() {
                     Ok(key) => {
+                        println!("kad put request completed");
                         let (sender, receiver) = oneshot::channel();
                         self.dht_event_sender
                             .send(DhtEvent::GetProviders {
@@ -158,6 +163,8 @@ impl ApiHandler {
                             .unwrap();
                         let peers = receiver.await.unwrap().unwrap();
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
+
+                        println!("got peers");
 
                         if !peers.is_empty() {
                             let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
@@ -174,12 +181,16 @@ impl ApiHandler {
                                 })
                                 .await
                                 .unwrap();
+                            
+                            println!("Got provideRequest res");
 
                             match receiver.await.unwrap() {
                                 Ok(_res) => {}
                                 Err(error) => eprint!("Start providing err: {}", error),
                             };
                         }
+
+                        println!("got here");
 
                         DhtResponseType::PutRecord(DhtPutRecordResponse {
                             signature: Some(key),
@@ -254,6 +265,8 @@ impl ApiHandler {
                                             }
                                             _ => {}
                                         };
+
+                                        self.storage_state.add_pin(cid.to_string())
                                     }
                                 }
                                 _ => {}
@@ -264,6 +277,7 @@ impl ApiHandler {
                 }
             }
             FileRequestType::GetFileRequest(cids) => {
+                println!("Got filerequest");
                 let mut content = Vec::new();
 
                 for cid in cids.clone() {
@@ -311,5 +325,17 @@ impl ApiHandler {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Default, Debug)]
+struct StorageState {
+    pinned: Vec<String>,
+    pub need_list: Vec<String>
+}
+
+impl StorageState {
+    fn add_pin(cid: String) {
+        self.pinned.push(cid);
     }
 }

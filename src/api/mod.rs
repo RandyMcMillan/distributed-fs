@@ -292,7 +292,7 @@ impl Service for MyApi {
                     if request.download {
                         tokio::spawn(async move {
                             let location = dht_get_response.location.unwrap();
-                            download_data(location.clone(), entry.clone()).await;
+                            download_data(location.clone(), &entry).await;
                             download_file(location, entry, res_sender).await;
                         });
                     } else {
@@ -335,7 +335,7 @@ impl Service for MyApi {
 
 async fn download_data(
     location: String,
-    entry: Entry,
+    entry: &Entry,
 ) {
     let download_children = resolve_cid(location.clone(), entry.metadata.children.clone()).unwrap();
     let mut download_cids_with_sizes = get_cids_with_sizes(download_children);
