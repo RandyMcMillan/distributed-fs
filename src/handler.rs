@@ -7,6 +7,7 @@ use std::path::Path;
 use std::{fs, str};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
+use std::collections::HashMap;
 
 use crate::api::utils::{get_cids_with_sizes, get_location_key, split_get_file_request};
 use crate::api::{
@@ -60,6 +61,53 @@ impl ApiHandler {
 
     pub async fn run(&mut self) {
         loop {
+            if !self.storage_state.need_list.is_empty() {
+                let mut cids_to_pin = Vec::new();
+                for (peer_id, cids_with_sizes) in &self.storage_state.need_list {
+                    for req_cids in split_get_file_request(cids_with_sizes.clone()) {
+                        println!("123{:#?}", req_cids);
+                        let request = FileRequest(FileRequestType::GetFileRequest(req_cids));
+
+                        let (sender, receiver) = oneshot::channel();
+                        self.dht_event_sender
+                            .send(DhtEvent::SendRequest {
+                                sender,
+                                request,
+                                peer: *peer_id,
+                            })
+                            .await
+                            .unwrap();
+                        match receiver.await.unwrap() {
+                            Ok(response) => match response.0 {
+                                FileResponseType::GetFileResponse(GetFileResponse {
+                                    cids,
+                                    content,
+                                }) => {
+                                    for (i, cid) in cids.iter().enumerate() {
+                                        let p = format!("./cache/2/{}", cid);
+                                        let path = Path::new(&p);
+
+                                        match fs::write(path, content[i].clone()) {
+                                            Err(error) => {
+                                                eprint!("error while writing file...\n {}", error)
+                                            }
+                                            _ => {}
+                                        };
+
+                                        cids_to_pin.push(cid.to_string());
+                                    }
+                                }
+                                _ => {}
+                            },
+                            Err(error) => eprint!("Error while sending request: {}", error),
+                        }
+                    }
+                }
+
+                self.storage_state.add_pins(&mut cids_to_pin);
+                self.storage_state.need_list.clear();
+            }
+
             tokio::select! {
                 data = self.api_req_receiver_stream.next() => {
                     match data {
@@ -236,44 +284,7 @@ impl ApiHandler {
                 receiver.await.unwrap().unwrap();
 
                 if !cids.is_empty() {
-                    for req_cids in split_get_file_request(cids) {
-                        println!("{:#?}", req_cids);
-                        let request = FileRequest(FileRequestType::GetFileRequest(req_cids));
-
-                        let (sender, receiver) = oneshot::channel();
-                        self.dht_event_sender
-                            .send(DhtEvent::SendRequest {
-                                sender,
-                                request,
-                                peer,
-                            })
-                            .await
-                            .unwrap();
-                        match receiver.await.unwrap() {
-                            Ok(response) => match response.0 {
-                                FileResponseType::GetFileResponse(GetFileResponse {
-                                    cids,
-                                    content,
-                                }) => {
-                                    for (i, cid) in cids.iter().enumerate() {
-                                        let p = format!("./cache/2/{}", cid);
-                                        let path = Path::new(&p);
-
-                                        match fs::write(path, content[i].clone()) {
-                                            Err(error) => {
-                                                eprint!("error while writing file...\n {}", error)
-                                            }
-                                            _ => {}
-                                        };
-
-                                        self.storage_state.add_pin(cid.to_string())
-                                    }
-                                }
-                                _ => {}
-                            },
-                            Err(error) => eprint!("Error while sending request: {}", error),
-                        }
-                    }
+                    self.storage_state.need_list.push((peer, cids));
                 }
             }
             FileRequestType::GetFileRequest(cids) => {
@@ -328,14 +339,19 @@ impl ApiHandler {
     }
 }
 
+
 #[derive(Default, Debug)]
 struct StorageState {
     pinned: Vec<String>,
-    pub need_list: Vec<String>
+    pub need_list: Vec<(PeerId, Vec<(String, i32)>)>
 }
 
 impl StorageState {
-    fn add_pin(cid: String) {
+    pub fn add_pin(&mut self, cid: String) {
         self.pinned.push(cid);
+    }
+
+    pub fn add_pins(&mut self, cids: &mut Vec<String>) {
+        self.pinned.append(cids);
     }
 }
