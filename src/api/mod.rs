@@ -65,6 +65,8 @@ pub struct MyApi {
     pub api_res_receiver: Arc<Mutex<broadcast::Receiver<DhtResponseType>>>,
 }
 
+impl MyApi {}
+
 #[async_trait::async_trait]
 #[tonic::async_trait]
 impl Service for MyApi {
@@ -279,7 +281,8 @@ impl Service for MyApi {
                         return Ok(Response::new(ReceiverStream::new(res_receiver)));
                     }
 
-                    let (has_access, entry) = user_has_access(dht_get_response.entry.unwrap(), public_key);
+                    let (has_access, entry) =
+                        user_has_access(dht_get_response.entry.unwrap(), public_key);
                     if !has_access {
                         res_sender
                             .send(format_err_ret("No access allowed".to_owned()))
@@ -333,10 +336,7 @@ impl Service for MyApi {
     }
 }
 
-async fn download_data(
-    location: String,
-    entry: &Entry,
-) {
+async fn download_data(location: String, entry: &Entry) {
     let download_children = resolve_cid(location.clone(), entry.metadata.children.clone()).unwrap();
     let mut download_cids_with_sizes = get_cids_with_sizes(download_children);
     download_cids_with_sizes = download_cids_with_sizes
@@ -349,15 +349,12 @@ async fn download_data(
 
     for req_cids in split_get_file_request(download_cids_with_sizes) {
         println!("Req: {:?}", req_cids);
-    };
+    }
 }
 
-fn user_has_access(
-    entry: Entry,
-    public_key: PublicKey
-) -> (bool, Entry) {
+fn user_has_access(entry: Entry, public_key: PublicKey) -> (bool, Entry) {
     if entry.public {
-        return (true, entry)
+        return (true, entry);
     }
 
     (entry.read_users.contains(&public_key.to_string()), entry)
