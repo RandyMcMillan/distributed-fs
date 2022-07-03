@@ -23,9 +23,8 @@ mod node;
 mod swarm;
 
 use api::{DhtRequestType, DhtResponseType, MyApi};
+use node::{ApiNode, Node, StorageNode};
 use swarm::ManagedSwarm;
-
-use node::{ApiNode, StorageNode};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -55,16 +54,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Provide type and server_addr 'cargo r storage 1.1.1.1:0000'");
         return Ok(());
     }
-    let managed_swarm = ManagedSwarm::new("/ip4/192.168.0.248/tcp/0").await;
+    // let managed_swarm = ManagedSwarm::new().await;
+    let swarm_addr = "/ip4/192.168.0.248/tcp/0";
 
     let node_type = args[1];
-    if node_type == "api" {
-        let node = ApiNode::new(managed_swarm);
-    } else if node_type == "storage" {
-        let node = StorageNode::new(managed_swarm);
-    } else {
-        panic!("node_type should be 'storage' or 'api'")
-    }
+    let node = {
+        if node_type == "api" {
+            Node::new_api_node(swarm_addr).await.unwrap()
+        } else if node_type == "storage" {
+            Node::new_storage_node(swarm_addr).await.unwrap()
+        } else {
+            panic!("node_type should be 'storage' or 'api'")
+        }
+    };
 
     tokio::spawn(async move {
         let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);

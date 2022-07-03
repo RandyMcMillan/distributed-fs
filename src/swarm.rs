@@ -1,13 +1,12 @@
 use async_std::task;
 use futures::StreamExt;
-use libp2p::kad::record::store::MemoryStore;
 use libp2p::kad::{record::Key, Kademlia, KademliaEvent, QueryResult, Quorum, Record};
 use libp2p::request_response::RequestId;
 use libp2p::{
     development_transport, identity,
     mdns::{Mdns, MdnsConfig},
     swarm::SwarmEvent,
-    PeerId, Swarm,
+    Multiaddr, PeerId, Swarm,
 };
 
 use crate::behaviour::{FileRequest, MyBehaviour, OutEvent};
@@ -15,9 +14,9 @@ use crate::behaviour::{FileRequest, MyBehaviour, OutEvent};
 pub struct ManagedSwarm(pub Swarm<MyBehaviour>);
 
 impl ManagedSwarm {
-    pub async fn new(addr: &str) -> Self {
+    pub async fn new(addr: Multiaddr) -> Self {
         let mut swarm = create_swarm().await;
-        swarm.listen_on(addr.parse().unwrap()).unwrap();
+        swarm.listen_on(addr).unwrap();
 
         Self(swarm)
     }
