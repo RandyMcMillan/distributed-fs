@@ -1,7 +1,11 @@
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
+use std::net::SocketAddr;
 use tokio_stream::wrappers::ReceiverStream;
+use std::sync::Arc;
+use tonic::transport::Server;
 
-use crate::api::{DhtRequestType, DhtResponseType};
+use crate::service::service_server::ServiceServer;
+use crate::api::{DhtRequestType, DhtResponseType, MyApi};
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::handler::StorageState;
 use crate::swarm::ManagedSwarm;
@@ -9,7 +13,7 @@ use crate::swarm::ManagedSwarm;
 #[derive(Debug)]
 enum NodeImp {
     ApiNode(ApiNode),
-    StroageNode(StorageNode),
+    StorageNode(StorageNode),
 }
 
 #[derive(Debug)]
@@ -23,7 +27,7 @@ impl From<ApiNode> for Node {
 
 impl From<StorageNode> for Node {
     fn from(imp: StorageNode) -> Self {
-        Self(NodeImp::StroageNode(imp))
+        Self(NodeImp::StorageNode(imp))
     }
 }
 
@@ -35,14 +39,30 @@ impl Node {
     pub async fn new_storage_node(swarm_addr: &str) -> Result<Node, String> {
         Ok(StorageNode::new(swarm_addr).await.into())
     }
+
+    pub async fn run(self, addr: &str) {
+        match self.0 {
+            NodeImp::ApiNode(node) => {
+                node.run_api(addr.parse().unwrap()).await;
+            }
+            NodeImp::StorageNode(node) => {
+
+            }
+        }
+
+    }
 }
 
 #[derive(Debug)]
 pub struct ApiNode {
     // gRPC request receiver stream
     api_req_receiver_stream: ReceiverStream<DhtRequestType>,
+    // gRPC request sender 
+    api_req_sender: mpsc::Sender<DhtRequestType>,
     // gRPC response sender
     api_res_sender: broadcast::Sender<DhtResponseType>,
+    // gRPC response receiver
+    api_res_receiver: broadcast::Receiver<DhtResponseType>,
     // Request-response Request receiever
     requests_receiver: mpsc::Receiver<ReqResEvent>,
     // DHT events for eventloop sender
@@ -68,10 +88,27 @@ impl ApiNode {
 
         Self {
             api_req_receiver_stream,
+            api_req_sender,
             api_res_sender,
+            api_res_receiver,
             requests_receiver,
             dht_event_sender,
         }
+    }
+
+    
+    pub async fn run_api(self, addr: SocketAddr) {
+        tokio::spawn(async move {
+            let api = MyApi {
+                api_req_sender: self.api_req_sender,
+                api_res_receiver: Arc::new(Mutex::new(self.api_res_receiver)),
+            };
+            let server = Server::builder().add_service(ServiceServer::new(api));
+
+            // let addr = args[2].parse().unwrap();
+            println!("Server listening on {}", addr);
+            server.serve(addr).await.unwrap();
+        });
     }
 }
 

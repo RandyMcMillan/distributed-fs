@@ -1,7 +1,6 @@
 use secp256k1::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Message, Secp256k1, SecretKey};
-use service::service_server::ServiceServer;
 use std::env;
 use std::error::Error;
 use std::str::FromStr;
@@ -57,7 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // let managed_swarm = ManagedSwarm::new().await;
     let swarm_addr = "/ip4/192.168.0.248/tcp/0";
 
-    let node_type = args[1];
+    let node_type = args[1].clone();
     let node = {
         if node_type == "api" {
             Node::new_api_node(swarm_addr).await.unwrap()
@@ -68,20 +67,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    tokio::spawn(async move {
-        let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);
-        h.run().await;
-    });
+    node.run(&args[2]).await;
 
-    let api = MyApi {
-        api_req_sender,
-        api_res_receiver: Arc::new(Mutex::new(api_res_receiver)),
-    };
-    let server = Server::builder().add_service(ServiceServer::new(api));
+    // tokio::spawn(async move {
+    //     let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);
+    //     h.run().await;
+    // });
 
-    let addr = args[2].parse().unwrap();
-    println!("Server listening on {}", addr);
-    server.serve(addr).await.unwrap();
+    // let api = MyApi {
+    //     api_req_sender,
+    //     api_res_receiver: Arc::new(Mutex::new(api_res_receiver)),
+    // };
+    // let server = Server::builder().add_service(ServiceServer::new(api));
+
+    // let addr = args[2].parse().unwrap();
+    // println!("Server listening on {}", addr);
+    // server.serve(addr).await.unwrap();
 
     Ok(())
 }
