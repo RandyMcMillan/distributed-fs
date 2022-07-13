@@ -1,6 +1,6 @@
 use async_std::task;
-use libp2p::kad::store::MemoryStore;
 use futures::StreamExt;
+use libp2p::kad::store::MemoryStore;
 use libp2p::kad::{record::Key, Kademlia, KademliaEvent, QueryResult, Quorum, Record};
 use libp2p::request_response::RequestId;
 use libp2p::{

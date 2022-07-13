@@ -4,9 +4,6 @@ use secp256k1::{Message, Secp256k1, SecretKey};
 use std::env;
 use std::error::Error;
 use std::str::FromStr;
-use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex};
-use tonic::transport::Server;
 
 mod service {
     tonic::include_proto!("api");
@@ -21,9 +18,7 @@ mod handler;
 mod node;
 mod swarm;
 
-use api::{DhtRequestType, DhtResponseType, MyApi};
-use node::{ApiNode, Node, StorageNode};
-use swarm::ManagedSwarm;
+use node::Node;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

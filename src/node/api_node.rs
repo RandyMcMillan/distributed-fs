@@ -1,63 +1,20 @@
-use tokio::sync::{broadcast, mpsc, Mutex};
+use futures::stream::StreamExt;
 use std::net::SocketAddr;
-use tokio_stream::wrappers::ReceiverStream;
 use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 
-use crate::service::service_server::ServiceServer;
 use crate::api::{DhtRequestType, DhtResponseType, MyApi};
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
-use crate::handler::StorageState;
+use crate::service::service_server::ServiceServer;
 use crate::swarm::ManagedSwarm;
-
-#[derive(Debug)]
-enum NodeImp {
-    ApiNode(ApiNode),
-    StorageNode(StorageNode),
-}
-
-#[derive(Debug)]
-pub struct Node(NodeImp);
-
-impl From<ApiNode> for Node {
-    fn from(imp: ApiNode) -> Self {
-        Self(NodeImp::ApiNode(imp))
-    }
-}
-
-impl From<StorageNode> for Node {
-    fn from(imp: StorageNode) -> Self {
-        Self(NodeImp::StorageNode(imp))
-    }
-}
-
-impl Node {
-    pub async fn new_api_node(swarm_addr: &str) -> Result<Node, String> {
-        Ok(ApiNode::new(swarm_addr).await.into())
-    }
-
-    pub async fn new_storage_node(swarm_addr: &str) -> Result<Node, String> {
-        Ok(StorageNode::new(swarm_addr).await.into())
-    }
-
-    pub async fn run(self, addr: &str) {
-        match self.0 {
-            NodeImp::ApiNode(node) => {
-                node.run_api(addr.parse().unwrap()).await;
-            }
-            NodeImp::StorageNode(node) => {
-
-            }
-        }
-
-    }
-}
 
 #[derive(Debug)]
 pub struct ApiNode {
     // gRPC request receiver stream
     api_req_receiver_stream: ReceiverStream<DhtRequestType>,
-    // gRPC request sender 
+    // gRPC request sender
     api_req_sender: mpsc::Sender<DhtRequestType>,
     // gRPC response sender
     api_res_sender: broadcast::Sender<DhtResponseType>,
@@ -96,7 +53,6 @@ impl ApiNode {
         }
     }
 
-    
     pub async fn run_api(self, addr: SocketAddr) {
         tokio::spawn(async move {
             let api = MyApi {
@@ -109,35 +65,31 @@ impl ApiNode {
             println!("Server listening on {}", addr);
             server.serve(addr).await.unwrap();
         });
-    }
-}
 
-#[derive(Debug)]
-pub struct StorageNode {
-    // Request-response Request receiever
-    requests_receiver: mpsc::Receiver<ReqResEvent>,
-    // DHT events for eventloop sender
-    dht_event_sender: mpsc::Sender<DhtEvent>,
-    // State of stored chunks
-    storage_state: StorageState,
-}
-
-impl StorageNode {
-    pub async fn new(swarm_addr: &str) -> Self {
-        let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
-        let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
-
-        let managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap()).await;
-        let event_loop = EventLoop::new(managed_swarm, requests_sender, dht_event_receiver);
-
-        tokio::spawn(async move {
-            event_loop.run().await;
-        });
-
-        Self {
-            requests_receiver,
-            dht_event_sender,
-            storage_state: Default::default(),
+        loop {
+            tokio::select! {
+                data = self.api_req_receiver_stream.next() => {
+                    match data {
+                        Some(data) => {
+                            match self.handle_api_event(data).await {
+                                Err(error) => println!("{}", error),
+                                _ => {}
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+                req = self.requests_receiver.recv() => {
+                    match req.unwrap() {
+                        ReqResEvent::InboundRequest { request, channel, peer } => {
+                            match self.handle_request_response(request, channel, peer).await {
+                                Err(error) => eprint!("Error in handle_request_response: {}", error),
+                                _ => {}
+                            };
+                        }
+                    }
+                }
+            }
         }
     }
 }
