@@ -1,11 +1,21 @@
 use futures::stream::StreamExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use std::str;
+use tokio::sync::{broadcast, mpsc, Mutex, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
+use libp2p::kad::record::Key;
 
-use crate::api::{DhtRequestType, DhtResponseType, MyApi};
+use crate::entry::Entry;
+use crate::api::utils::{get_cids_with_sizes, get_location_key};
+use crate::api::{
+    DhtGetRecordRequest, DhtGetRecordResponse, DhtPutRecordRequest, DhtPutRecordResponse,
+    DhtRequestType, DhtResponseType,MyApi
+};
+use crate::behaviour::{
+    FileRequest, FileRequestType, 
+};
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::service::service_server::ServiceServer;
 use crate::swarm::ManagedSwarm;
@@ -91,5 +101,129 @@ impl ApiNode {
                 }
             }
         }
+    }
+
+    pub async fn handle_api_event(&mut self, data: DhtRequestType) -> Result<(), String> {
+        match data {
+            DhtRequestType::GetRecord(DhtGetRecordRequest {
+                signature,
+                name,
+                public_key,
+            }) => {
+                let loc = signature.clone();
+
+                let (key, location, _signature) = get_location_key(signature.clone()).unwrap();
+
+                let (sender, receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::GetRecord {
+                        key: key.clone(),
+                        sender,
+                    })
+                    .await
+                    .unwrap();
+
+                match receiver.await.unwrap() {
+                    Ok(record) => {
+                        let entry: Entry =
+                            serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+
+                        self.api_res_sender
+                            .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+                                entry: Some(entry),
+                                error: None,
+                                location: Some(location),
+                            }))
+                            .unwrap();
+                    }
+                    Err(error) => {
+                        self.api_res_sender
+                            .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
+                                entry: None,
+                                error: Some(error.to_string()),
+                                location: None,
+                            }))
+                            .unwrap();
+                    }
+                };
+            }
+            DhtRequestType::PutRecord(DhtPutRecordRequest {
+                entry,
+                signature,
+                public_key,
+            }) => {
+                println!("Put request");
+                let key: String = format!("e_{}", signature.to_string());
+
+                let entry = Entry::new(signature, public_key.to_string(), entry);
+                let value = serde_json::to_vec(&entry).unwrap();
+
+                let (sender, receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::PutRecord {
+                        key: Key::new(&key.clone()),
+                        sender,
+                        value,
+                    })
+                    .await
+                    .unwrap();
+                let res = match receiver.await.unwrap() {
+                    Ok(key) => {
+                        println!("kad put request completed");
+                        let (sender, receiver) = oneshot::channel();
+                        self.dht_event_sender
+                            .send(DhtEvent::GetProviders {
+                                key: key.clone(),
+                                sender,
+                            })
+                            .await
+                            .unwrap();
+                        let peers = receiver.await.unwrap().unwrap();
+                        let key = String::from_utf8(key.clone().to_vec()).unwrap();
+
+                        println!("got peers");
+
+                        if !peers.is_empty() {
+                            let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
+
+                            let request =
+                                FileRequest(FileRequestType::ProvideRequest(cids_with_sizes));
+
+                            let (sender, receiver) = oneshot::channel();
+                            self.dht_event_sender
+                                .send(DhtEvent::SendRequest {
+                                    sender,
+                                    request,
+                                    peer: peers[0],
+                                })
+                                .await
+                                .unwrap();
+
+                            println!("Got provideRequest res");
+
+                            match receiver.await.unwrap() {
+                                Ok(_res) => {}
+                                Err(error) => eprint!("Start providing err: {}", error),
+                            };
+                        }
+
+                        println!("got here");
+
+                        DhtResponseType::PutRecord(DhtPutRecordResponse {
+                            signature: Some(key),
+                            error: None,
+                        })
+                    }
+                    Err(error) => DhtResponseType::PutRecord(DhtPutRecordResponse {
+                        signature: None,
+                        error: Some(error.to_owned()),
+                    }),
+                };
+
+                self.api_res_sender.send(res).unwrap();
+            }
+        };
+
+        Ok(())
     }
 }
