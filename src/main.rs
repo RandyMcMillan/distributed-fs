@@ -50,19 +50,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     // let managed_swarm = ManagedSwarm::new().await;
     let swarm_addr = "/ip4/192.168.0.248/tcp/0";
+    let api_addr = &args[2];
 
     let node_type = args[1].clone();
     let node = {
         if node_type == "api" {
-            Node::new_api_node(swarm_addr).await.unwrap()
+            Node::new_api_node(swarm_addr, api_addr).await.unwrap()
         } else if node_type == "storage" {
-            Node::new_storage_node(swarm_addr).await.unwrap()
+            Node::new_storage_node(swarm_addr, api_addr).await.unwrap()
         } else {
             panic!("node_type should be 'storage' or 'api'")
         }
     };
 
-    node.run(&args[2]).await;
+    node.run().await;
 
     // tokio::spawn(async move {
     //     let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);

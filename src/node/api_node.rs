@@ -1,11 +1,18 @@
 use futures::stream::StreamExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::str;
+use std::{str, fs};
 use tokio::sync::{broadcast, mpsc, Mutex, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
 use libp2p::kad::record::Key;
+use libp2p::request_response::ResponseChannel;
+use libp2p::PeerId;
+use std::io::{BufReader, Read};
+use std::path::Path;
+// use std::{fs, str};
+// use tokio::sync::{broadcast, mpsc, oneshot};
+// use tokio_stream::wrappers::ReceiverStream;
 
 use crate::entry::Entry;
 use crate::api::utils::{get_cids_with_sizes, get_location_key};
@@ -14,7 +21,7 @@ use crate::api::{
     DhtRequestType, DhtResponseType,MyApi
 };
 use crate::behaviour::{
-    FileRequest, FileRequestType, 
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse,
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::service::service_server::ServiceServer;
@@ -24,12 +31,8 @@ use crate::swarm::ManagedSwarm;
 pub struct ApiNode {
     // gRPC request receiver stream
     api_req_receiver_stream: ReceiverStream<DhtRequestType>,
-    // gRPC request sender
-    api_req_sender: mpsc::Sender<DhtRequestType>,
     // gRPC response sender
     api_res_sender: broadcast::Sender<DhtResponseType>,
-    // gRPC response receiver
-    api_res_receiver: broadcast::Receiver<DhtResponseType>,
     // Request-response Request receiever
     requests_receiver: mpsc::Receiver<ReqResEvent>,
     // DHT events for eventloop sender
@@ -37,7 +40,7 @@ pub struct ApiNode {
 }
 
 impl ApiNode {
-    pub async fn new(swarm_addr: &str) -> Self {
+    pub async fn new(swarm_addr: &str, api_addr: SocketAddr) -> Self {
         let (api_req_sender, api_req_receiver) = mpsc::channel::<DhtRequestType>(32);
         let (api_res_sender, api_res_receiver) = broadcast::channel::<DhtResponseType>(32);
 
@@ -49,33 +52,32 @@ impl ApiNode {
         let managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap()).await;
         let event_loop = EventLoop::new(managed_swarm, requests_sender, dht_event_receiver);
 
+        // Run swarm(kad) eventloop
         tokio::spawn(async move {
             event_loop.run().await;
         });
 
+        // Run gRPC api server
+        tokio::spawn(async move {
+            let api = MyApi {
+                api_req_sender,
+                api_res_receiver: Arc::new(Mutex::new(api_res_receiver)),
+            };
+            let server = Server::builder().add_service(ServiceServer::new(api));
+
+            println!("gRPC server listening on {}", api_addr);
+            server.serve(api_addr).await.unwrap();
+        });
+
         Self {
             api_req_receiver_stream,
-            api_req_sender,
             api_res_sender,
-            api_res_receiver,
             requests_receiver,
             dht_event_sender,
         }
     }
 
-    pub async fn run_api(self, addr: SocketAddr) {
-        tokio::spawn(async move {
-            let api = MyApi {
-                api_req_sender: self.api_req_sender,
-                api_res_receiver: Arc::new(Mutex::new(self.api_res_receiver)),
-            };
-            let server = Server::builder().add_service(ServiceServer::new(api));
-
-            // let addr = args[2].parse().unwrap();
-            println!("Server listening on {}", addr);
-            server.serve(addr).await.unwrap();
-        });
-
+    pub async fn run_api(mut self) {
         loop {
             tokio::select! {
                 data = self.api_req_receiver_stream.next() => {
@@ -102,6 +104,72 @@ impl ApiNode {
             }
         }
     }
+
+    pub async fn handle_request_response(
+        &mut self,
+        req: FileRequest,
+        channel: ResponseChannel<FileResponse>,
+        peer: PeerId,
+    ) -> Result<(), String> {
+        let FileRequest(r) = req;
+
+        match r {
+            FileRequestType::ProvideRequest(cids) => {
+                let response = FileResponse(FileResponseType::ProvideResponse(
+                    "Not a storage node".to_owned(),
+                ));
+            }
+            FileRequestType::GetFileRequest(cids) => {
+                println!("Got filerequest");
+                let mut content = Vec::new();
+
+                for cid in cids.clone() {
+                    let location = format!("./cache/{}", cid.clone());
+
+                    let c = {
+                        if Path::new(&location).exists() {
+                            let f = fs::File::open(&location).unwrap();
+                            let mut reader = BufReader::new(f);
+                            let mut buffer = Vec::new();
+
+                            reader.read_to_end(&mut buffer).unwrap();
+
+                            buffer
+                        } else {
+                            println!("doesn't exists");
+                            Vec::new()
+                        }
+                    };
+
+                    content.push(c);
+                }
+
+                let response = FileResponse(FileResponseType::GetFileResponse(GetFileResponse {
+                    content,
+                    cids,
+                }));
+
+                let (sender, receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::SendResponse {
+                        sender,
+                        response,
+                        channel,
+                    })
+                    .await
+                    .unwrap();
+                match receiver.await.unwrap() {
+                    Ok(_) => {}
+                    Err(_error) => {
+                        println!("{:?}", _error);
+                    }
+                };
+            }
+        }
+
+        Ok(())
+    }
+
 
     pub async fn handle_api_event(&mut self, data: DhtRequestType) -> Result<(), String> {
         match data {
@@ -169,7 +237,6 @@ impl ApiNode {
                     .unwrap();
                 let res = match receiver.await.unwrap() {
                     Ok(key) => {
-                        println!("kad put request completed");
                         let (sender, receiver) = oneshot::channel();
                         self.dht_event_sender
                             .send(DhtEvent::GetProviders {
@@ -181,7 +248,6 @@ impl ApiNode {
                         let peers = receiver.await.unwrap().unwrap();
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
-                        println!("got peers");
 
                         if !peers.is_empty() {
                             let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
@@ -198,8 +264,6 @@ impl ApiNode {
                                 })
                                 .await
                                 .unwrap();
-
-                            println!("Got provideRequest res");
 
                             match receiver.await.unwrap() {
                                 Ok(_res) => {}
