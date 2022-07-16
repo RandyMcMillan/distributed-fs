@@ -34,19 +34,19 @@ impl StorageNode {
     }
 
     pub async fn run_storage_node(self) {
-        loop {
-            tokio::select! {
-                req = self.requests_receiver.recv() => {
-                    match req.unwrap() {
-                        ReqResEvent::InboundRequest { request, channel, peer } => {
-                            match self.handle_request_response(request, channel, peer).await {
-                                Err(error) => eprint!("Error in handle_request_response: {}", error),
-                                _ => {}
-                            };
-                        }
-                    }
-                }
-            }
-        }
+        // loop {
+        //     tokio::select! {
+        //         req = self.requests_receiver.recv() => {
+        //             match req.unwrap() {
+        //                 ReqResEvent::InboundRequest { request, channel, peer } => {
+        //                     match self.handle_request_response(request, channel, peer).await {
+        //                         Err(error) => eprint!("Error in handle_request_response: {}", error),
+        //                         _ => {}
+        //                     };
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 }

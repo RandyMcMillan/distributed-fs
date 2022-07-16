@@ -48,37 +48,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Provide type and server_addr 'cargo r storage 1.1.1.1:0000'");
         return Ok(());
     }
-    // let managed_swarm = ManagedSwarm::new().await;
-    let swarm_addr = "/ip4/192.168.0.248/tcp/0";
-    let api_addr = &args[2];
+
+    let addr = &args[2];
+    let swarm_addr = format!("/ip4/{}/tcp/0", addr);
+    let api_addr = format!("{}:50051", addr);
 
     let node_type = args[1].clone();
     let node = {
         if node_type == "api" {
-            Node::new_api_node(swarm_addr, api_addr).await.unwrap()
+            Node::new_api_node(&swarm_addr, &api_addr).await.unwrap()
         } else if node_type == "storage" {
-            Node::new_storage_node(swarm_addr, api_addr).await.unwrap()
+            Node::new_storage_node(&swarm_addr).await.unwrap()
         } else {
             panic!("node_type should be 'storage' or 'api'")
         }
     };
 
     node.run().await;
-
-    // tokio::spawn(async move {
-    //     let mut h = handler::ApiHandler::new(api_req_receiver, api_res_sender, managed_swarm);
-    //     h.run().await;
-    // });
-
-    // let api = MyApi {
-    //     api_req_sender,
-    //     api_res_receiver: Arc::new(Mutex::new(api_res_receiver)),
-    // };
-    // let server = Server::builder().add_service(ServiceServer::new(api));
-
-    // let addr = args[2].parse().unwrap();
-    // println!("Server listening on {}", addr);
-    // server.serve(addr).await.unwrap();
 
     Ok(())
 }

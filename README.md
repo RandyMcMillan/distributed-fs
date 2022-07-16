@@ -1,6 +1,6 @@
 # Distributed Storage Network with libp2p
 
-A decentralized network built in rust with libp2p, that is secure and performant
+A decentralized network built in rust with libp2p to provide users with performant and secure data storage
 
 # How it works
 
@@ -17,10 +17,10 @@ The clients interact with the peers via a gRPC server hosted on `api_node`'s,
 # Running a node
 
 -   Clone this repository `git clone https://github.com/MatsDK/distributed-fs.git`
--   Run the program: `cargo run (api|storage) ()`
+-   Run the program: `cargo run (api|storage) (url)`
 
 ```
-$ cargo run api 127.0.0.1:5000
+$ cargo run api 127.0.0.1
 
-$ cargo run storage 127.0.0.1:5000
+$ cargo run storage 127.0.0.1
 ```
