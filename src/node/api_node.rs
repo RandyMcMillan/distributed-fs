@@ -21,7 +21,7 @@ use crate::api::{
     DhtRequestType, DhtResponseType,MyApi
 };
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse,
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::service::service_server::ServiceServer;
@@ -114,10 +114,19 @@ impl ApiNode {
         let FileRequest(r) = req;
 
         match r {
-            FileRequestType::ProvideRequest(cids) => {
+            FileRequestType::ProvideRequest(_cids) => {
                 let response = FileResponse(FileResponseType::ProvideResponse(
-                    "Not a storage node".to_owned(),
+                    ProvideResponse::Error("Not a storage node".to_owned())
                 ));
+                let (sender, _receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::SendResponse {
+                        sender,
+                        response,
+                        channel,
+                    })
+                    .await
+                    .unwrap();
             }
             FileRequestType::GetFileRequest(cids) => {
                 println!("Got filerequest");
@@ -266,7 +275,22 @@ impl ApiNode {
                                 .unwrap();
 
                             match receiver.await.unwrap() {
-                                Ok(_res) => {}
+                                Ok(res) => {
+                                    match res.0 {
+                                        FileResponseType::ProvideResponse(provide_response) => {
+                                            match provide_response {
+                                                ProvideResponse::Error(error) => {
+                                                    eprint!("Start providing err: {}", error);
+                                                },
+                                                ProvideResponse::Success => {
+                                                    println!("Started providing on peer: {:?}", peers[0]);
+                                                }
+                                            }
+
+                                        },
+                                        _ => {}
+                                    }
+                                }
                                 Err(error) => eprint!("Start providing err: {}", error),
                             };
                         }

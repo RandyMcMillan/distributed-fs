@@ -80,9 +80,15 @@ pub struct GetFileResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProvideResponse {
+    Error(String),
+    Success
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileResponseType {
     GetFileResponse(GetFileResponse),
-    ProvideResponse(String),
+    ProvideResponse(ProvideResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

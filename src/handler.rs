@@ -14,7 +14,7 @@ use crate::api::{
     DhtRequestType, DhtResponseType,
 };
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse,
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse
 };
 use crate::entry::Entry;
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
@@ -186,10 +186,26 @@ impl ApiHandler {
                                 .await
                                 .unwrap();
 
-                            println!("Got provideRequest res");
+                            // println!("Got provideRequest res");
 
                             match receiver.await.unwrap() {
-                                Ok(_res) => {}
+                                Ok(res) => {
+                                    println!("{:?}", res);
+                                    match res.0 {
+                                        FileResponseType::ProvideResponse(provide_response) => {
+                                            match provide_response {
+                                                ProvideResponse::Error(error) => {
+                                                    eprint!("Start providing err: {}", error);
+                                                },
+                                                ProvideResponse::Success => {
+                                                    println!("Started providing on peer: {:?}", peers[0]);
+                                                }
+                                            }
+
+                                        },
+                                        _ => {}
+                                    }
+                                }
                                 Err(error) => eprint!("Start providing err: {}", error),
                             };
                         }
@@ -224,9 +240,7 @@ impl ApiHandler {
 
         match r {
             FileRequestType::ProvideRequest(cids) => {
-                let response = FileResponse(FileResponseType::ProvideResponse(
-                    "Started providing".to_owned(),
-                ));
+                let response = FileResponse(FileResponseType::ProvideResponse(ProvideResponse::Success));
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
