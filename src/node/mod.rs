@@ -31,7 +31,6 @@ impl Node {
     }
 
     pub async fn new_storage_node(swarm_addr: &str) -> Result<Node, String> {
-        // Ok(StorageNode::new(swarm_addr, api_addr.parse().unwrap()).await.into())
         Ok(StorageNode::new(swarm_addr).await.into())
     }
 

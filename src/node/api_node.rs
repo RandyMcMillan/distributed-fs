@@ -10,9 +10,6 @@ use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use std::io::{BufReader, Read};
 use std::path::Path;
-// use std::{fs, str};
-// use tokio::sync::{broadcast, mpsc, oneshot};
-// use tokio_stream::wrappers::ReceiverStream;
 
 use crate::entry::Entry;
 use crate::api::utils::{get_cids_with_sizes, get_location_key};
