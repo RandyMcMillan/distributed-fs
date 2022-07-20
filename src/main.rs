@@ -14,7 +14,6 @@ mod behaviour;
 mod constants;
 mod entry;
 mod event_loop;
-mod handler;
 mod node;
 mod swarm;
 

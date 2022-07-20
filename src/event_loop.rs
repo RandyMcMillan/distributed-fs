@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::behaviour::{FileRequest, FileResponse, OutEvent};
+use crate::behaviour::{FileRequest, FileResponse, OutEvent, FileResponseType, FileRequestType};
 use crate::swarm::ManagedSwarm;
 
 #[derive(Debug)]
@@ -89,6 +89,11 @@ impl EventLoop {
                             for (peer_id, multiaddr) in list {
                                 self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
                                 self.ledgers.entry(peer_id).or_insert(0);
+
+                                let (sender, _receiver) = oneshot::channel();
+                                let request = FileRequest(FileRequestType::GetNodeTypeRequest);
+
+                                self.send_request(peer_id, request, sender).await.unwrap();
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
@@ -104,12 +109,19 @@ impl EventLoop {
                         )) => {
                             match message {
                                 RequestResponseMessage::Response { response, request_id } => {
-                                    match self.pending_requests.remove(&request_id) {
-                                        Some(sender) => {
-                                            sender.send(Ok(response)).unwrap();
-                                        },
-                                        None => {
-                                            eprint!("Request not found: {}", request_id);
+                                    match response.0 {
+                                        FileResponseType::GetNodeTypeResponse(node_type) => {
+                                            println!("node type of {:?} is {:?}", peer, node_type);
+                                        }
+                                        _ => {
+                                            match self.pending_requests.remove(&request_id) {
+                                                Some(sender) => {
+                                                    sender.send(Ok(response)).unwrap();
+                                                },
+                                                None => {
+                                                    eprint!("Request not found: {}", request_id);
+                                                }
+                                            };
                                         }
                                     };
                                 }

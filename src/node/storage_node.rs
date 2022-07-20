@@ -6,7 +6,7 @@ use std::io::{BufReader, Read};
 use std::path::Path;
 
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse, NodeTypes
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::swarm::ManagedSwarm;
@@ -66,6 +66,19 @@ impl StorageNode {
         let FileRequest(r) = req;
 
         match r {
+            FileRequestType::GetNodeTypeRequest => {
+                let response = FileResponse(FileResponseType::GetNodeTypeResponse(NodeTypes::Storage));
+
+                let (sender, _receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::SendResponse {
+                        sender,
+                        response,
+                        channel,
+                    })
+                    .await
+                    .unwrap();
+            }
             FileRequestType::ProvideRequest(_cids) => {
 
                 let response = FileResponse(FileResponseType::ProvideResponse(ProvideResponse::Success));

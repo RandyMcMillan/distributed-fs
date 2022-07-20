@@ -18,7 +18,7 @@ use crate::api::{
     DhtRequestType, DhtResponseType,MyApi
 };
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse, NodeTypes
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::service::service_server::ServiceServer;
@@ -111,6 +111,20 @@ impl ApiNode {
         let FileRequest(r) = req;
 
         match r {
+            FileRequestType::GetNodeTypeRequest => {
+                let response = FileResponse(FileResponseType::GetNodeTypeResponse(NodeTypes::Api));
+
+                let (sender, _receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::SendResponse {
+                        sender,
+                        response,
+                        channel,
+                    })
+                    .await
+                    .unwrap();
+
+            }
             FileRequestType::ProvideRequest(_cids) => {
                 let response = FileResponse(FileResponseType::ProvideResponse(
                     ProvideResponse::Error("Not a storage node".to_owned())

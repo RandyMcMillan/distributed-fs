@@ -64,10 +64,18 @@ pub struct FileExchangeProtocol();
 #[derive(Clone)]
 pub struct FileExchangeCodec();
 
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileRequestType {
     GetFileRequest(Vec<String>),
     ProvideRequest(Vec<(String, i32)>),
+    GetNodeTypeRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NodeTypes {
+    Storage,
+    Api
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +97,7 @@ pub enum ProvideResponse {
 pub enum FileResponseType {
     GetFileResponse(GetFileResponse),
     ProvideResponse(ProvideResponse),
+    GetNodeTypeResponse(NodeTypes),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
