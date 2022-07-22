@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::behaviour::{FileRequest, FileResponse, OutEvent, FileResponseType, FileRequestType};
+use crate::behaviour::{FileRequest, FileRequestType, FileResponse, FileResponseType, OutEvent};
+use crate::node::NodeType;
 use crate::swarm::ManagedSwarm;
 
 #[derive(Debug)]
@@ -53,11 +54,16 @@ pub enum DhtEvent {
     },
 }
 
+struct Ledger {
+    score: u16,
+    node_type: NodeType,
+}
+
 pub struct EventLoop {
     managed_swarm: ManagedSwarm,
     requests_sender: mpsc::Sender<ReqResEvent>,
     events_receiver: mpsc::Receiver<DhtEvent>,
-    ledgers: HashMap<PeerId, u16>,
+    ledgers: HashMap<PeerId, Ledger>,
     pending_requests:
         HashMap<RequestId, oneshot::Sender<Result<FileResponse, Box<dyn Error + Send>>>>,
 }
@@ -88,7 +94,10 @@ impl EventLoop {
                         SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                             for (peer_id, multiaddr) in list {
                                 self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                                self.ledgers.entry(peer_id).or_insert(0);
+                                self.ledgers.entry(peer_id).or_insert(Ledger {
+                                    score: 0,
+                                    node_type: NodeType::ApiNode
+                                });
 
                                 let (sender, _receiver) = oneshot::channel();
                                 let request = FileRequest(FileRequestType::GetNodeTypeRequest);

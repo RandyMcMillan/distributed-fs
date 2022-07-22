@@ -15,6 +15,8 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use std::{iter, str};
 
+use crate::node::NodeType;
+
 #[derive(NetworkBehaviour)]
 #[behaviour(out_event = "OutEvent", event_process = false)]
 pub struct MyBehaviour {
@@ -64,18 +66,11 @@ pub struct FileExchangeProtocol();
 #[derive(Clone)]
 pub struct FileExchangeCodec();
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileRequestType {
     GetFileRequest(Vec<String>),
     ProvideRequest(Vec<(String, i32)>),
     GetNodeTypeRequest,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NodeTypes {
-    Storage,
-    Api
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,14 +85,14 @@ pub struct GetFileResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProvideResponse {
     Error(String),
-    Success
+    Success,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileResponseType {
     GetFileResponse(GetFileResponse),
     ProvideResponse(ProvideResponse),
-    GetNodeTypeResponse(NodeTypes),
+    GetNodeTypeResponse(NodeType),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

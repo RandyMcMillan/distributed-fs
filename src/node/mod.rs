@@ -2,7 +2,14 @@ pub mod api_node;
 pub mod storage_node;
 
 use api_node::ApiNode;
+use serde::{Deserialize, Serialize};
 use storage_node::StorageNode;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NodeType {
+    ApiNode,
+    StorageNode,
+}
 
 #[derive(Debug)]
 enum NodeImp {
@@ -27,7 +34,9 @@ impl From<StorageNode> for Node {
 
 impl Node {
     pub async fn new_api_node(swarm_addr: &str, api_addr: &str) -> Result<Node, String> {
-        Ok(ApiNode::new(swarm_addr, api_addr.parse().unwrap()).await.into())
+        Ok(ApiNode::new(swarm_addr, api_addr.parse().unwrap())
+            .await
+            .into())
     }
 
     pub async fn new_storage_node(swarm_addr: &str) -> Result<Node, String> {

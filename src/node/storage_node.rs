@@ -1,14 +1,15 @@
-use std::{str, fs};
-use tokio::sync::{mpsc,  oneshot};
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use std::{fs, str};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse, NodeTypes
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse,
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
+use crate::node::NodeType;
 use crate::swarm::ManagedSwarm;
 
 #[derive(Debug)]
@@ -41,7 +42,7 @@ impl StorageNode {
     }
 
     pub async fn run_storage_node(mut self) {
-        loop { 
+        loop {
             tokio::select! {
                 req = self.requests_receiver.recv() => {
                     match req.unwrap() {
@@ -67,9 +68,10 @@ impl StorageNode {
 
         match r {
             FileRequestType::GetNodeTypeRequest => {
-                let response = FileResponse(FileResponseType::GetNodeTypeResponse(NodeTypes::Storage));
+                let response =
+                    FileResponse(FileResponseType::GetNodeTypeResponse(NodeType::StorageNode));
 
-                let (sender, _receiver) = oneshot::channel();
+                let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
                     .send(DhtEvent::SendResponse {
                         sender,
@@ -78,10 +80,12 @@ impl StorageNode {
                     })
                     .await
                     .unwrap();
+
+                receiver.await.unwrap().unwrap();
             }
             FileRequestType::ProvideRequest(_cids) => {
-
-                let response = FileResponse(FileResponseType::ProvideResponse(ProvideResponse::Success));
+                let response =
+                    FileResponse(FileResponseType::ProvideResponse(ProvideResponse::Success));
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
@@ -148,5 +152,4 @@ impl StorageNode {
 
         Ok(())
     }
-
 }

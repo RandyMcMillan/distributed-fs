@@ -1,26 +1,27 @@
 use futures::stream::StreamExt;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::{str, fs};
-use tokio::sync::{broadcast, mpsc, Mutex, oneshot};
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::transport::Server;
 use libp2p::kad::record::Key;
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use std::io::{BufReader, Read};
+use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
+use std::{fs, str};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::Server;
 
-use crate::entry::Entry;
 use crate::api::utils::{get_cids_with_sizes, get_location_key};
 use crate::api::{
     DhtGetRecordRequest, DhtGetRecordResponse, DhtPutRecordRequest, DhtPutRecordResponse,
-    DhtRequestType, DhtResponseType,MyApi
+    DhtRequestType, DhtResponseType, MyApi,
 };
 use crate::behaviour::{
-    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse, NodeTypes
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse,
 };
+use crate::entry::Entry;
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
+use crate::node::NodeType;
 use crate::service::service_server::ServiceServer;
 use crate::swarm::ManagedSwarm;
 
@@ -112,9 +113,10 @@ impl ApiNode {
 
         match r {
             FileRequestType::GetNodeTypeRequest => {
-                let response = FileResponse(FileResponseType::GetNodeTypeResponse(NodeTypes::Api));
+                let response =
+                    FileResponse(FileResponseType::GetNodeTypeResponse(NodeType::ApiNode));
 
-                let (sender, _receiver) = oneshot::channel();
+                let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
                     .send(DhtEvent::SendResponse {
                         sender,
@@ -123,11 +125,11 @@ impl ApiNode {
                     })
                     .await
                     .unwrap();
-
+                receiver.await.unwrap().unwrap();
             }
             FileRequestType::ProvideRequest(_cids) => {
                 let response = FileResponse(FileResponseType::ProvideResponse(
-                    ProvideResponse::Error("Not a storage node".to_owned())
+                    ProvideResponse::Error("Not a storage node".to_owned()),
                 ));
                 let (sender, _receiver) = oneshot::channel();
                 self.dht_event_sender
@@ -189,7 +191,6 @@ impl ApiNode {
 
         Ok(())
     }
-
 
     pub async fn handle_api_event(&mut self, data: DhtRequestType) -> Result<(), String> {
         match data {
@@ -268,7 +269,6 @@ impl ApiNode {
                         let peers = receiver.await.unwrap().unwrap();
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
 
-
                         if !peers.is_empty() {
                             let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
 
@@ -286,22 +286,22 @@ impl ApiNode {
                                 .unwrap();
 
                             match receiver.await.unwrap() {
-                                Ok(res) => {
-                                    match res.0 {
-                                        FileResponseType::ProvideResponse(provide_response) => {
-                                            match provide_response {
-                                                ProvideResponse::Error(error) => {
-                                                    eprint!("Start providing err: {}", error);
-                                                },
-                                                ProvideResponse::Success => {
-                                                    println!("Started providing on peer: {:?}", peers[0]);
-                                                }
+                                Ok(res) => match res.0 {
+                                    FileResponseType::ProvideResponse(provide_response) => {
+                                        match provide_response {
+                                            ProvideResponse::Error(error) => {
+                                                eprint!("Start providing err: {}", error);
                                             }
-
-                                        },
-                                        _ => {}
+                                            ProvideResponse::Success => {
+                                                println!(
+                                                    "Started providing on peer: {:?}",
+                                                    peers[0]
+                                                );
+                                            }
+                                        }
                                     }
-                                }
+                                    _ => {}
+                                },
                                 Err(error) => eprint!("Start providing err: {}", error),
                             };
                         }
