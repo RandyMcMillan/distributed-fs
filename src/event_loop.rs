@@ -52,8 +52,12 @@ pub enum DhtEvent {
         response: FileResponse,
         sender: oneshot::Sender<Result<(), String>>,
     },
+    GetStorageNodes {
+        sender: oneshot::Sender<Result<Vec<PeerId>, String>>,
+    }
 }
 
+#[derive(Debug)]
 struct Ledger {
     score: u16,
     node_type: NodeType,
@@ -94,7 +98,7 @@ impl EventLoop {
                         SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                             for (peer_id, multiaddr) in list {
                                 self.managed_swarm.0.behaviour_mut().kademlia.add_address(&peer_id, multiaddr);
-                                self.ledgers.entry(peer_id).or_insert(Ledger {
+                                self.ledgers.insert(peer_id, Ledger {
                                     score: 0,
                                     node_type: NodeType::ApiNode
                                 });
@@ -120,7 +124,12 @@ impl EventLoop {
                                 RequestResponseMessage::Response { response, request_id } => {
                                     match response.0 {
                                         FileResponseType::GetNodeTypeResponse(node_type) => {
-                                            println!("node type of {:?} is {:?}", peer, node_type);
+                                            println!("{:?}: Node Type: {:?}", peer, node_type);
+                                            self.ledgers.insert(peer, Ledger{
+                                                score: 0,
+                                                node_type
+                                            });
+                                            println!("{:?}", self.ledgers);
                                         }
                                         _ => {
                                             match self.pending_requests.remove(&request_id) {

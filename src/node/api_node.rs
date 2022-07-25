@@ -260,10 +260,7 @@ impl ApiNode {
                     Ok(key) => {
                         let (sender, receiver) = oneshot::channel();
                         self.dht_event_sender
-                            .send(DhtEvent::GetProviders {
-                                key: key.clone(),
-                                sender,
-                            })
+                            .send(DhtEvent::GetStorageNodes { sender })
                             .await
                             .unwrap();
                         let peers = receiver.await.unwrap().unwrap();
