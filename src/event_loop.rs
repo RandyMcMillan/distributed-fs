@@ -29,10 +29,6 @@ pub enum DhtEvent {
         key: Key,
         sender: oneshot::Sender<Result<Vec<PeerId>, String>>,
     },
-    StartProviding {
-        key: Key,
-        sender: oneshot::Sender<Result<Key, String>>,
-    },
     GetRecord {
         key: Key,
         sender: oneshot::Sender<Result<Record, String>>,
@@ -160,9 +156,6 @@ impl EventLoop {
                             DhtEvent::GetProviders { key, sender } => {
                                 sender.send(self.managed_swarm.get_providers(key).await).unwrap();
                             }
-                            DhtEvent::StartProviding { key, sender } => {
-                                sender.send(self.managed_swarm.start_providing(key).await).unwrap();
-                            }
                             DhtEvent::GetRecord { key, sender } => {
                                 sender.send(self.managed_swarm.get(key).await).unwrap();
                             }
@@ -175,6 +168,9 @@ impl EventLoop {
                             DhtEvent::SendResponse { sender, response, channel } => {
                                 sender.send(Ok(())).unwrap();
                                 self.send_response(response, channel).await.unwrap();
+                            }
+                            DhtEvent::GetStorageNodes { sender } => {
+                                sender.send(self.get_storage_nodes().await).unwrap()
                             }
                         }
                     }
@@ -221,5 +217,20 @@ impl EventLoop {
             .unwrap();
 
         Ok(())
+    }
+
+    pub async fn get_storage_nodes(&mut self) -> Result<Vec<PeerId>, String> {
+        let mut storage_nodes = Vec::new();
+        for (&peer_id, ledger) in self.ledgers.iter() {
+            if let NodeType::StorageNode =  ledger.node_type {
+                storage_nodes.push(peer_id);
+
+                if storage_nodes.len() >= 3 {
+                    break
+                }
+            }
+        }
+
+        Ok(storage_nodes)
     }
 }

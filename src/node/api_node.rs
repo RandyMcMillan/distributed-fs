@@ -264,7 +264,7 @@ impl ApiNode {
                             .await
                             .unwrap();
                         let peers = receiver.await.unwrap().unwrap();
-                        let key = String::from_utf8(key.clone().to_vec()).unwrap();
+                        println!("Storage Nodes: {:?}", peers);
 
                         if !peers.is_empty() {
                             let cids_with_sizes = get_cids_with_sizes(entry.metadata.children);
@@ -305,6 +305,7 @@ impl ApiNode {
 
                         println!("got here");
 
+                        let key = String::from_utf8(key.clone().to_vec()).unwrap();
                         DhtResponseType::PutRecord(DhtPutRecordResponse {
                             signature: Some(key),
                             error: None,
