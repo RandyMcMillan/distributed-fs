@@ -41,6 +41,7 @@ impl EntryMetaData {
                     r#type: child.r#type.clone(),
                     cids: child.cids.clone(),
                     size: child.size,
+                    data: child.data.clone()
                 })
                 .collect(),
         }
@@ -57,6 +58,7 @@ impl EntryMetaData {
                     r#type: item.r#type.clone(),
                     size: 0,
                     cids: item.cids.clone(),
+                    data: item.data.clone()
                 })
                 .collect::<Vec<ApiChildren>>();
         }
@@ -68,6 +70,7 @@ impl EntryMetaData {
                 r#type: item.r#type.clone(),
                 size: 0,
                 cids: item.cids.clone(),
+                data: item.data.clone()
             })
             .collect()
     }
@@ -79,4 +82,5 @@ pub struct Children {
     pub r#type: String,
     pub cids: Vec<String>,
     pub size: i32,
+    pub data: Option<Vec<u8>>
 }

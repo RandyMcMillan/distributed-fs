@@ -50,7 +50,7 @@ const downloadFile = async () => {
 
 	await clearDir("../download")
 	call.on("data", (res: any) => {
-		 console.log(res[res.download_response])
+		console.log(res[res.download_response])
 		if (res.download_response === "file") {
 			const folderPath = fsPath.join("./download", fsPath.dirname(res[res.download_response].name));
 			if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
@@ -66,7 +66,7 @@ const downloadFile = async () => {
 }
 
 type Type = "file" | "directory"
-type Children = { type: Type, name: string, entry: null, cids: string[], size: number }[]
+type Children = { type: Type, name: string, entry: null, cids: string[], size: number, data: Buffer | null }[]
 
 interface MetaData {
 	name: string
@@ -74,6 +74,7 @@ interface MetaData {
 }
 
 const MAX_CHUNK_SIZE = 1024 * 256
+const MAX_INLINE_CHUNK_SIZE = 1024
 
 const getMetaDataForDir = (path: string): null | MetaData => {
 	if (!fs.existsSync(path)) return null
@@ -94,17 +95,13 @@ const getMetaDataForDir = (path: string): null | MetaData => {
 			else {
 				let data = fs.readFileSync(fsPath.join(path, entry))
 
-				let hasher = createHash("sha256")
-				hasher.update(data)
-
-				let cid = hasher.digest("hex");
-
 				children.push({
 					name: fsPath.join(basePath, entry),
 					type: "file",
 					entry: null,
 					cids: [],
-					size: data.length
+					size: data.length,
+					data: data.length <= MAX_INLINE_CHUNK_SIZE ? data : null
 				})
 			}
 		})
@@ -176,7 +173,11 @@ const uploadDirectory = async (path: string) => {
 
 	await call.write(request)
 
-	for (let { stream } of createReadStreams(metaData.children.map(({ name }) => ({ path: fsPath.join(path, name) })))) {
+	const streamData = metaData.children
+		.filter(({ size }) => size > MAX_INLINE_CHUNK_SIZE)
+		.map(({ name }) => ({ path: fsPath.join(path, name) }))
+
+	for (let { stream } of createReadStreams(streamData)) {
 		await new Promise((res, rej) => {
 			stream.on("data", (chunk) => {
 				console.log(chunk.length)

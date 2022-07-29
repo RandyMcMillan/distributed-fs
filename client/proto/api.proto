@@ -17,6 +17,7 @@ message ApiChildren {
 	string type = 2;
 	int32 size = 3;
 	repeated string cids = 4;
+	optional bytes data = 5;
 }
 
 message ApiEntry {

@@ -303,8 +303,6 @@ impl ApiNode {
                             };
                         }
 
-                        println!("got here");
-
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();
                         DhtResponseType::PutRecord(DhtPutRecordResponse {
                             signature: Some(key),
