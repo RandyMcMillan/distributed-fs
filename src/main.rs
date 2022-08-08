@@ -1,6 +1,6 @@
 use secp256k1::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
-use secp256k1::{Message, Secp256k1, SecretKey};
+use secp256k1::{Message, Secp256k1, SecretKey, Signature};
 use std::env;
 use std::error::Error;
 use std::str::FromStr;
@@ -35,11 +35,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
         println!("Secret Key: {:?}", secret_key.secret_bytes());
 
-        generate_signature(
-			"e_somelocation/folder/e_3044022059561fd42dcd9640e8b032b20f7b4575f895ab1e9d9fe479718c02026bee6e69022033596df910d8881949af6dddc50d63e8948c688cd74e91293ac74f8c3d9f891a/folder".as_bytes(),
-			"4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de"
-		);
-
         return Ok(());
     }
 
@@ -68,11 +63,38 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn generate_signature(msg: &[u8], secret_key: &str) {
-    let secret_key = SecretKey::from_str(secret_key).unwrap();
+pub fn generate_signature(msg: &[u8], secret_key: &SecretKey) -> Signature {
+    // let secret_key = SecretKey::from_str(secret_key).unwrap();
     let secp = Secp256k1::new();
     let message = Message::from_hashed_data::<sha256::Hash>(msg);
     let sig = secp.sign_ecdsa(&message, &secret_key);
 
     println!("Signature: {}", sig);
+    sig
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use secp256k1::hashes::sha256;
+    use secp256k1::rand::rngs::OsRng;
+    use secp256k1::{Message, Secp256k1};
+
+    #[test]
+    fn test_signatures() {
+        let secp = Secp256k1::new();
+        let mut rng = OsRng::new().unwrap();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rng);
+
+        // println!("Secret key: {:?}", secret_key);
+        // println!("Public key: {}", public_key);
+        let input = b"Some Message";
+        let signature = generate_signature(input, &secret_key);
+
+        let message = Message::from_hashed_data::<sha256::Hash>(input);
+        let result = secp.verify_ecdsa(&message, &signature, &public_key);
+
+        assert_eq!(result, Ok(()))
+    }
 }

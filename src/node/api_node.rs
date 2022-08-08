@@ -272,35 +272,37 @@ impl ApiNode {
                             let request =
                                 FileRequest(FileRequestType::ProvideRequest(cids_with_sizes));
 
-                            let (sender, receiver) = oneshot::channel();
-                            self.dht_event_sender
-                                .send(DhtEvent::SendRequest {
-                                    sender,
-                                    request,
-                                    peer: peers[0],
-                                })
-                                .await
-                                .unwrap();
+                            for peer in peers {
+                                let (sender, receiver) = oneshot::channel();
+                                self.dht_event_sender
+                                    .send(DhtEvent::SendRequest {
+                                        sender,
+                                        request: request.clone(),
+                                        peer,
+                                    })
+                                    .await
+                                    .unwrap();
 
-                            match receiver.await.unwrap() {
-                                Ok(res) => match res.0 {
-                                    FileResponseType::ProvideResponse(provide_response) => {
-                                        match provide_response {
-                                            ProvideResponse::Error(error) => {
-                                                eprint!("Start providing err: {}", error);
-                                            }
-                                            ProvideResponse::Success => {
-                                                println!(
-                                                    "Started providing on peer: {:?}",
-                                                    peers[0]
-                                                );
+                                match receiver.await.unwrap() {
+                                    Ok(res) => match res.0 {
+                                        FileResponseType::ProvideResponse(provide_response) => {
+                                            match provide_response {
+                                                ProvideResponse::Error(error) => {
+                                                    eprint!("Start providing err: {}", error);
+                                                }
+                                                ProvideResponse::Success => {
+                                                    println!(
+                                                        "Started providing on peer: {:?}",
+                                                        peer
+                                                    );
+                                                }
                                             }
                                         }
-                                    }
-                                    _ => {}
-                                },
-                                Err(error) => eprint!("Start providing err: {}", error),
-                            };
+                                        _ => {}
+                                    },
+                                    Err(error) => eprint!("Start providing err: {}", error),
+                                };
+                            }
                         }
 
                         let key = String::from_utf8(key.clone().to_vec()).unwrap();

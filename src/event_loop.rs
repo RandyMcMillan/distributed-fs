@@ -50,7 +50,7 @@ pub enum DhtEvent {
     },
     GetStorageNodes {
         sender: oneshot::Sender<Result<Vec<PeerId>, String>>,
-    }
+    },
 }
 
 #[derive(Debug)]
@@ -222,11 +222,11 @@ impl EventLoop {
     pub async fn get_storage_nodes(&mut self) -> Result<Vec<PeerId>, String> {
         let mut storage_nodes = Vec::new();
         for (&peer_id, ledger) in self.ledgers.iter() {
-            if let NodeType::StorageNode =  ledger.node_type {
+            if let NodeType::StorageNode = ledger.node_type {
                 storage_nodes.push(peer_id);
 
                 if storage_nodes.len() >= 3 {
-                    break
+                    break;
                 }
             }
         }

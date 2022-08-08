@@ -14,13 +14,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Request, Response, Status};
 use utils::{download_file, get_cids_with_sizes, resolve_cid, split_get_file_request};
 
+use crate::constants::MAX_DHT_STORED_CHUNKS;
 use crate::entry::Entry;
 use crate::service::service_server::Service;
 use crate::service::{
     get_response::DownloadResponse, put_request::UploadRequest, ApiEntry, GetRequest, GetResponse,
     GetResponseMetadata, PutRequest, PutRequestMetadata, PutResponse,
 };
-use crate::constants::MAX_DHT_STORED_CHUNKS;
 
 #[derive(Debug, Clone)]
 pub struct DhtGetRecordRequest {
@@ -152,17 +152,11 @@ impl Service for MyApi {
                     }
 
                     match validate_metadata_entry(&data.entry.as_ref().unwrap()) {
-                        Err(error) => {
-                            return  format_ret(
-                                Some(error),
-                                data.signature.clone(),
-                            )
-                        }
+                        Err(error) => return format_ret(Some(error), data.signature.clone()),
                         Ok(_) => {
                             metadata = Some(data);
                         }
                     }
-
                 }
                 UploadRequest::File(file) => {
                     if !metadata.is_none() {
@@ -374,8 +368,11 @@ fn user_has_access(entry: Entry, public_key: PublicKey) -> (bool, Entry) {
 
 fn validate_metadata_entry(entry: &ApiEntry) -> Result<(), String> {
     for child in &entry.children {
-        if child.data.is_some() && child.size > MAX_DHT_STORED_CHUNKS {
-            return Err(format!("{} cannot be stored inline ({} > {})", child.name, child.size, MAX_DHT_STORED_CHUNKS))
+        if child.data.is_none() && child.size <= MAX_DHT_STORED_CHUNKS {
+            return Err(format!(
+                "{} should be stored inline ({} > {})",
+                child.name, child.size, MAX_DHT_STORED_CHUNKS
+            ));
         }
     }
 
