@@ -301,7 +301,8 @@ impl Service for MyApi {
                     if request.download {
                         tokio::spawn(async move {
                             let location = dht_get_response.location.unwrap();
-                            download_data(location.clone(), &entry).await;
+                            let req_cids = download_data(location.clone(), &entry).await;
+                            println!("Cids that are required to be downloaded from other peers: {:?}", req_cids);
                             download_file(location, entry, res_sender).await;
                         });
                     } else {
@@ -342,20 +343,18 @@ impl Service for MyApi {
     }
 }
 
-async fn download_data(location: String, entry: &Entry) {
+async fn download_data(location: String, entry: &Entry) -> Vec<Vec<String>> {
     let download_children = resolve_cid(location.clone(), entry.metadata.children.clone()).unwrap();
     let mut download_cids_with_sizes = get_cids_with_sizes(download_children);
     download_cids_with_sizes = download_cids_with_sizes
         .into_iter()
-        .filter(|(cid, _)| {
+        .filter(|(cid, size)| {
             let location = format!("./cache/{}", cid.clone());
-            !Path::new(&location).exists()
+            !Path::new(&location).exists() && *size > MAX_DHT_STORED_CHUNKS
         })
         .collect();
 
-    for req_cids in split_get_file_request(download_cids_with_sizes) {
-        println!("Req: {:?}", req_cids);
-    }
+    split_get_file_request(download_cids_with_sizes) 
 }
 
 fn user_has_access(entry: Entry, public_key: PublicKey) -> (bool, Entry) {

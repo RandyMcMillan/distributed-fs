@@ -244,7 +244,14 @@ impl ApiNode {
                 println!("Put request");
                 let key: String = format!("e_{}", signature.to_string());
 
-                let entry = Entry::new(signature, public_key.to_string(), entry);
+                let (sender, receiver) = oneshot::channel();
+                self.dht_event_sender
+                    .send(DhtEvent::GetStorageNodes { sender })
+                    .await
+                    .unwrap();
+                let peers = receiver.await.unwrap().unwrap();
+                
+                let entry = Entry::new(signature, public_key.to_string(), entry, &peers);
                 let value = serde_json::to_vec(&entry).unwrap();
 
                 let (sender, receiver) = oneshot::channel();
@@ -258,12 +265,6 @@ impl ApiNode {
                     .unwrap();
                 let res = match receiver.await.unwrap() {
                     Ok(key) => {
-                        let (sender, receiver) = oneshot::channel();
-                        self.dht_event_sender
-                            .send(DhtEvent::GetStorageNodes { sender })
-                            .await
-                            .unwrap();
-                        let peers = receiver.await.unwrap().unwrap();
                         println!("Storage Nodes: {:?}", peers);
 
                         if !peers.is_empty() {

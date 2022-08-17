@@ -93,36 +93,48 @@ pub async fn download_file(
     let download_children = resolve_cid(location, entry.metadata.children).unwrap();
 
     for download_item in download_children.iter() {
-        for cid in download_item.cids.clone() {
-            let location = format!("./cache/{}", cid.clone());
+        if let Some(data) = &download_item.data {
+            tx.send(Ok(GetResponse {
+                download_response: Some(DownloadResponse::File(DownloadFile {
+                    content: data.clone(),
+                    cid: download_item.cids[0].clone(),
+                    name: download_item.name.clone(),
+                })),
+            }))
+            .await
+            .unwrap();
+        } else {
+            for cid in download_item.cids.clone() {
+                let location = format!("./cache/{}", cid.clone());
 
-            if Path::new(&location).exists() {
-                let file = fs::File::open(&location).unwrap();
+                if Path::new(&location).exists() {
+                    let file = fs::File::open(&location).unwrap();
 
-                let mut reader = BufReader::with_capacity(CAP, file);
+                    let mut reader = BufReader::with_capacity(CAP, file);
 
-                loop {
-                    let buffer = reader.fill_buf().unwrap();
-                    let length = buffer.len();
+                    loop {
+                        let buffer = reader.fill_buf().unwrap();
+                        let length = buffer.len();
 
-                    if length == 0 {
-                        break;
-                    } else {
-                        tx.send(Ok(GetResponse {
-                            download_response: Some(DownloadResponse::File(DownloadFile {
-                                content: buffer.to_vec(),
-                                cid: cid.clone(),
-                                name: download_item.name.clone(),
-                            })),
-                        }))
-                        .await
-                        .unwrap();
+                        if length == 0 {
+                            break;
+                        } else {
+                            tx.send(Ok(GetResponse {
+                                download_response: Some(DownloadResponse::File(DownloadFile {
+                                    content: buffer.to_vec(),
+                                    cid: cid.clone(),
+                                    name: download_item.name.clone(),
+                                })),
+                            }))
+                            .await
+                            .unwrap();
+                        }
+
+                        reader.consume(length);
                     }
-
-                    reader.consume(length);
+                } else {
+                    eprintln!("File does not exists");
                 }
-            } else {
-                eprintln!("File does not exists");
             }
         }
     }

@@ -3,7 +3,6 @@ use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Message, Secp256k1, SecretKey, Signature};
 use std::env;
 use std::error::Error;
-use std::str::FromStr;
 
 mod service {
     tonic::include_proto!("api");
@@ -30,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         println!(
             "Public key: {}\nPrivate Key: {}",
-            public_key.to_string(),
+            public_key,
             secret_key.display_secret()
         );
         println!("Secret Key: {:?}", secret_key.secret_bytes());
@@ -64,10 +63,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 pub fn generate_signature(msg: &[u8], secret_key: &SecretKey) -> Signature {
-    // let secret_key = SecretKey::from_str(secret_key).unwrap();
     let secp = Secp256k1::new();
     let message = Message::from_hashed_data::<sha256::Hash>(msg);
-    let sig = secp.sign_ecdsa(&message, &secret_key);
+    let sig = secp.sign_ecdsa(&message, secret_key);
 
     println!("Signature: {}", sig);
     sig

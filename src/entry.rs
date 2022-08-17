@@ -1,5 +1,6 @@
 use crate::service::{ApiChildren, ApiEntry};
 use serde::{Deserialize, Serialize};
+use libp2p::PeerId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Entry {
@@ -9,10 +10,11 @@ pub struct Entry {
     pub providers: Vec<String>,
     pub read_users: Vec<String>,
     pub metadata: EntryMetaData,
+    pub storage_nodes: Vec<String>
 }
 
 impl Entry {
-    pub fn new(signature: String, public_key: String, entry: ApiEntry) -> Self {
+    pub fn new(signature: String, public_key: String, entry: ApiEntry, storage_nodes: &Vec<PeerId>) -> Self {
         Self {
             signature,
             owner: public_key,
@@ -20,6 +22,7 @@ impl Entry {
             providers: Vec::new(),
             read_users: entry.read_users,
             metadata: EntryMetaData::new(entry.children, entry.name),
+            storage_nodes: storage_nodes.into_iter().map(|peer_id| peer_id.to_string()).collect()
         }
     }
 }
