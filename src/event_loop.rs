@@ -84,7 +84,12 @@ impl EventLoop {
     }
 
     pub async fn run(mut self) {
+        let test: Vec<String> = Vec::new();
         loop {
+            if !test.is_empty() {
+                println!("test");
+            }
+
             tokio::select! {
                 swarm_event = self.managed_swarm.0.select_next_some() => {
                     match swarm_event {

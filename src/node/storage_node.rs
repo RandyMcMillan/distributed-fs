@@ -11,6 +11,7 @@ use crate::behaviour::{
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::node::NodeType;
 use crate::swarm::ManagedSwarm;
+use crate::api::utils::split_get_file_request;
 
 #[derive(Debug)]
 pub struct StorageNode {
@@ -83,7 +84,7 @@ impl StorageNode {
 
                 receiver.await.unwrap().unwrap();
             }
-            FileRequestType::ProvideRequest(_cids) => {
+            FileRequestType::ProvideRequest(cids) => {
                 let response =
                     FileResponse(FileResponseType::ProvideResponse(ProvideResponse::Success));
 
@@ -98,9 +99,29 @@ impl StorageNode {
                     .unwrap();
                 receiver.await.unwrap().unwrap();
 
-                // if !cids.is_empty() {
-                //     self.storage_state.need_list.push((peer, cids));
-                // }
+                let get_cids_reqs = split_get_file_request(cids);
+                for get_cids in get_cids_reqs {
+                    let request = FileRequest(FileRequestType::GetFileRequest(get_cids));
+
+                    let (sender, receiver) = oneshot::channel();
+                    self.dht_event_sender
+                        .send(DhtEvent::SendRequest {
+                            sender,
+                            request,
+                            peer
+                        })
+                        .await
+                        .unwrap();
+                    let res = receiver.await.unwrap().unwrap();
+
+                    match res.0 {
+                        FileResponseType::GetFileResponse(GetFileResponse { content, cids }) => {
+                            println!("{:?}, content blocks: {:?}", cids ,content.len());
+                        }
+                        _ => println!("Uknown error")
+                    }
+                }
+
             }
             FileRequestType::GetFileRequest(cids) => {
                 println!("Got filerequest");

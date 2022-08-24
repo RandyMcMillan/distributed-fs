@@ -250,7 +250,7 @@ impl ApiNode {
                     .await
                     .unwrap();
                 let peers = receiver.await.unwrap().unwrap();
-                
+
                 let entry = Entry::new(signature, public_key.to_string(), entry, &peers);
                 let value = serde_json::to_vec(&entry).unwrap();
 

@@ -279,61 +279,63 @@ impl Service for MyApi {
 
         self.api_req_sender.send(dht_request.clone()).await.unwrap();
         match self.api_res_receiver.lock().await.recv().await {
-            Ok(dht_response) => match dht_response {
-                DhtResponseType::GetRecord(dht_get_response) => {
-                    if let Some(message) = dht_get_response.error {
-                        res_sender.send(format_err_ret(message)).await.unwrap();
+            Ok(dht_response) => {
+                match dht_response {
+                    DhtResponseType::GetRecord(dht_get_response) => {
+                        if let Some(message) = dht_get_response.error {
+                            res_sender.send(format_err_ret(message)).await.unwrap();
 
-                        return Ok(Response::new(ReceiverStream::new(res_receiver)));
+                            return Ok(Response::new(ReceiverStream::new(res_receiver)));
+                        }
+
+                        let (has_access, entry) =
+                            user_has_access(dht_get_response.entry.unwrap(), public_key);
+                        if !has_access {
+                            res_sender
+                                .send(format_err_ret("No access allowed".to_owned()))
+                                .await
+                                .unwrap();
+
+                            return Ok(Response::new(ReceiverStream::new(res_receiver)));
+                        }
+
+                        if request.download {
+                            tokio::spawn(async move {
+                                let location = dht_get_response.location.unwrap();
+                                let req_cids = download_data(location.clone(), &entry).await;
+                                println!("Cids that are required to be downloaded from other peers: {:?}", req_cids);
+                                download_file(location, entry, res_sender).await;
+                            });
+                        } else {
+                            let children = {
+                                let location = dht_get_response.location.unwrap();
+                                if location == "/" {
+                                    entry.metadata.api_children(None)
+                                } else {
+                                    entry.metadata.api_children(Some(location))
+                                }
+                            };
+
+                            res_sender
+                                .send(Ok(GetResponse {
+                                    download_response: Some(DownloadResponse::Metadata(
+                                        GetResponseMetadata {
+                                            entry: None,
+                                            children,
+                                            error: None,
+                                            success: true,
+                                        },
+                                    )),
+                                }))
+                                .await
+                                .unwrap();
+                        }
                     }
-
-                    let (has_access, entry) =
-                        user_has_access(dht_get_response.entry.unwrap(), public_key);
-                    if !has_access {
-                        res_sender
-                            .send(format_err_ret("No access allowed".to_owned()))
-                            .await
-                            .unwrap();
-
-                        return Ok(Response::new(ReceiverStream::new(res_receiver)));
-                    }
-
-                    if request.download {
-                        tokio::spawn(async move {
-                            let location = dht_get_response.location.unwrap();
-                            let req_cids = download_data(location.clone(), &entry).await;
-                            println!("Cids that are required to be downloaded from other peers: {:?}", req_cids);
-                            download_file(location, entry, res_sender).await;
-                        });
-                    } else {
-                        let children = {
-                            let location = dht_get_response.location.unwrap();
-                            if location == "/" {
-                                entry.metadata.api_children(None)
-                            } else {
-                                entry.metadata.api_children(Some(location))
-                            }
-                        };
-
-                        res_sender
-                            .send(Ok(GetResponse {
-                                download_response: Some(DownloadResponse::Metadata(
-                                    GetResponseMetadata {
-                                        entry: None,
-                                        children,
-                                        error: None,
-                                        success: true,
-                                    },
-                                )),
-                            }))
-                            .await
-                            .unwrap();
+                    _ => {
+                        eprintln!("unknown error");
                     }
                 }
-                _ => {
-                    eprintln!("unknown error");
-                }
-            },
+            }
             Err(error) => {
                 eprintln!("{}", error);
             }
@@ -354,7 +356,7 @@ async fn download_data(location: String, entry: &Entry) -> Vec<Vec<String>> {
         })
         .collect();
 
-    split_get_file_request(download_cids_with_sizes) 
+    split_get_file_request(download_cids_with_sizes)
 }
 
 fn user_has_access(entry: Entry, public_key: PublicKey) -> (bool, Entry) {
