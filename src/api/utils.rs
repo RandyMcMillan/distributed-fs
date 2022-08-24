@@ -5,7 +5,7 @@ use std::path::Path;
 use tokio::sync::mpsc;
 use tonic::Status;
 
-use crate::constants::MAX_REQUEST_SIZE;
+use crate::constants::{MAX_DHT_STORED_CHUNKS, MAX_REQUEST_SIZE};
 use crate::entry::{Children, Entry};
 use crate::service::{get_response::DownloadResponse, DownloadFile, GetResponse};
 
@@ -156,6 +156,7 @@ pub fn get_cids_with_sizes(items: Vec<Children>) -> Vec<(String, i32)> {
             }
             current_cids
         })
+        .filter(|item| item.1 > MAX_DHT_STORED_CHUNKS)
         .collect::<Vec<(String, i32)>>()
 }
 

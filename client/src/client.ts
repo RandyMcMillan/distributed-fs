@@ -48,6 +48,7 @@ const downloadFile = async () => {
 		meta
 	)
 
+	console.log(sig)
 	await clearDir("../download")
 	call.on("data", (res: any) => {
 		console.log(res[res.download_response])
@@ -195,5 +196,5 @@ const uploadDirectory = async (path: string) => {
 	await call.end()
 }
 
-// uploadDirectory("../test/Hello")
-downloadFile()
+uploadDirectory("../test/Hello")
+// downloadFile()

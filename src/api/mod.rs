@@ -352,7 +352,7 @@ async fn download_data(location: String, entry: &Entry) -> Vec<Vec<String>> {
         .into_iter()
         .filter(|(cid, size)| {
             let location = format!("./cache/{}", cid.clone());
-            !Path::new(&location).exists() && *size > MAX_DHT_STORED_CHUNKS
+            !Path::new(&location).exists()
         })
         .collect();
 

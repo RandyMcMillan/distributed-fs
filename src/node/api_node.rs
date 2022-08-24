@@ -202,6 +202,7 @@ impl ApiNode {
                 let loc = signature.clone();
 
                 let (key, location, _signature) = get_location_key(signature.clone()).unwrap();
+                println!("{}", location);
 
                 let (sender, receiver) = oneshot::channel();
                 self.dht_event_sender
@@ -216,6 +217,7 @@ impl ApiNode {
                     Ok(record) => {
                         let entry: Entry =
                             serde_json::from_str(&str::from_utf8(&record.value).unwrap()).unwrap();
+                        println!("{:?}", entry);
 
                         self.api_res_sender
                             .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
@@ -226,6 +228,7 @@ impl ApiNode {
                             .unwrap();
                     }
                     Err(error) => {
+                        println!("error");
                         self.api_res_sender
                             .send(DhtResponseType::GetRecord(DhtGetRecordResponse {
                                 entry: None,

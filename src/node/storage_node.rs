@@ -5,13 +5,13 @@ use std::path::Path;
 use std::{fs, str};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::api::utils::split_get_file_request;
 use crate::behaviour::{
     FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse,
 };
 use crate::event_loop::{DhtEvent, EventLoop, ReqResEvent};
 use crate::node::NodeType;
 use crate::swarm::ManagedSwarm;
-use crate::api::utils::split_get_file_request;
 
 #[derive(Debug)]
 pub struct StorageNode {
@@ -108,7 +108,7 @@ impl StorageNode {
                         .send(DhtEvent::SendRequest {
                             sender,
                             request,
-                            peer
+                            peer,
                         })
                         .await
                         .unwrap();
@@ -116,12 +116,27 @@ impl StorageNode {
 
                     match res.0 {
                         FileResponseType::GetFileResponse(GetFileResponse { content, cids }) => {
-                            println!("{:?}, content blocks: {:?}", cids ,content.len());
+                            println!("{:?}, content blocks: {:?}", cids, content.len());
+
+                            for (i, cid) in cids.iter().enumerate() {
+                                let location = format!("./cache/{}", cid.to_string());
+                                let path: &Path = Path::new(&location);
+
+                                if path.exists() {
+                                    continue;
+                                }
+
+                                match fs::write(path, &content[i]) {
+                                    Err(_error) => {
+                                        println!("error writing file");
+                                    }
+                                    _ => {}
+                                };
+                            }
                         }
-                        _ => println!("Uknown error")
+                        _ => println!("Uknown error"),
                     }
                 }
-
             }
             FileRequestType::GetFileRequest(cids) => {
                 println!("Got filerequest");
