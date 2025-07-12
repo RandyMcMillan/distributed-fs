@@ -20,7 +20,11 @@ The clients interact with the peers via a gRPC server hosted on `api_node`'s,
 -   Run the program: `cargo run (api|storage) (url)`
 
 ```
-$ cargo run api 127.0.0.1
+$ cargo run --bin tcp_chat api 127.0.0.1
 
-$ cargo run storage 127.0.0.1
+```
+
+```
+$ cargo run --bin tcp_chat storage 127.0.0.1
+
 ```
