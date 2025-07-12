@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.len() < 3 {
-        println!("Provide type and server_addr 'cargo r storage 1.1.1.1:0000'");
+        println!("Provide type and server_addr 'tcp_chat [api | storage] 127.0.0.1'");
         return Ok(());
     }
 
