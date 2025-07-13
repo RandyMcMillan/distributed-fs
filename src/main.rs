@@ -38,15 +38,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.len() < 3 {
-        println!("Provide type and server_addr 'tcp_chat [api | storage] 127.0.0.1'");
-        return Ok(());
+        //println!("Provide type and server_addr 'tcp_chat [api | storage] 127.0.0.1'");
+        //return Ok(());
     }
 
-    let addr = &args[2];
+    let node_type: String;
+    let mut addr: &str = "127.0.0.1";
+    if args.len() <= 3 {
+        node_type = "storage".to_string();
+        addr = "127.0.0.1";
+    } else {
+        node_type = args[1].clone();
+        addr = &args[2];
+    }
+
     let swarm_addr = format!("/ip4/{}/tcp/0", addr);
     let api_addr = format!("{}:50051", addr);
 
-    let node_type = args[1].clone();
     let node = {
         if node_type == "api" {
             Node::new_api_node(&swarm_addr, &api_addr).await.unwrap()
