@@ -15,8 +15,8 @@ use libp2p::{
     Transport,
 };
 use std::error::Error;
-use tokio::*;
 use tokio::io::{self, AsyncBufReadExt};
+use tokio::*;
 
 /// The `tokio::main` attribute sets up a tokio runtime.
 #[tokio::main]
