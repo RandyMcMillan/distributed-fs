@@ -1,5 +1,5 @@
 use futures::StreamExt;
-use libp2p::kad::{record::Key, Record};
+use libp2p::kad::{record::Key, KademliaEvent, QueryResult, Record, GetProvidersOk, GetRecordOk, PutRecordOk, PutRecordError, GetProvidersError, GetRecordError};
 use libp2p::mdns::MdnsEvent;
 use libp2p::request_response::{
     RequestId, RequestResponseEvent, RequestResponseMessage, ResponseChannel,
@@ -49,7 +49,7 @@ pub enum DhtEvent {
         sender: oneshot::Sender<Result<(), String>>,
     },
     GetStorageNodes {
-        sender: oneshot::Sender<Result<Vec<PeerId>, String>>,
+        sender: oneshot::Sender<Result<Vec<PeerId>, String>>
     },
 }
 
@@ -96,7 +96,7 @@ impl EventLoop {
                 swarm_event = self.managed_swarm.0.select_next_some() => {
                     match swarm_event {
                         SwarmEvent::NewListenAddr { address, .. } => {
-                            println!("Listening on {:?}", address);
+                            println!("Listening on {:?}" , address);
                         }
                         SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                             for (peer_id, multiaddr) in list {
@@ -114,7 +114,7 @@ impl EventLoop {
                         }
                         SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
                             for (peer_id, multiaddr) in list {
-                                println!("expired {:?}", peer_id);
+                                println!("expired {:?}" , peer_id);
                                 self.managed_swarm.0.behaviour_mut().kademlia.remove_address(&peer_id, &multiaddr)
                                     .expect("Error removing address");
                                 self.ledgers.remove(&peer_id);
@@ -127,12 +127,12 @@ impl EventLoop {
                                 RequestResponseMessage::Response { response, request_id } => {
                                     match response.0 {
                                         FileResponseType::GetNodeTypeResponse(node_type) => {
-                                            println!("{:?}: Node Type: {:?}", peer, node_type);
+                                            println!("{:?}: Node Type: {:?}" , peer, node_type);
                                             self.ledgers.insert(peer, Ledger{
                                                 score: 0,
                                                 node_type
                                             });
-                                            println!("{:?}", self.ledgers);
+                                            println!("{:?}" , self.ledgers);
                                         }
                                         _ => {
                                             match self.pending_requests.remove(&request_id) {
@@ -140,7 +140,7 @@ impl EventLoop {
                                                     sender.send(Ok(response)).unwrap();
                                                 },
                                                 None => {
-                                                    eprint!("Request not found: {}", request_id);
+                                                    eprintln!("Request not found: {}" , request_id);
                                                 }
                                             };
                                         }
@@ -153,7 +153,30 @@ impl EventLoop {
                                 }
                             }
                         }
-                        SwarmEvent::Behaviour(OutEvent::Kademlia(_e)) => {}
+                        SwarmEvent::Behaviour(OutEvent::Kademlia(e)) => {
+                            match e {
+                                KademliaEvent::OutboundQueryCompleted { id, result, .. } => {
+                                    if let Some(sender) = self.pending_kademlia_queries.remove(&id) {
+                                        sender.send(Ok(result)).unwrap();
+                                    } else {
+                                        eprintln!("Kademlia query sender not found for id: {:?}" , id);
+                                    }
+                                }
+                                KademliaEvent::RoutingUpdated { peer, is_new_peer, addresses, old_peer, bucket_range: _ } => {
+                                    if is_new_peer {
+                                        println!("New peer in Kademlia routing table: {:?}" , peer);
+                                        self.ledgers.insert(peer, Ledger {
+                                            score: 0,
+                                            node_type: NodeType::ApiNode // Default to ApiNode, will be updated by GetNodeTypeRequest
+                                        });
+                                        let (sender, _receiver) = oneshot::channel();
+                                        let request = FileRequest(FileRequestType::GetNodeTypeRequest);
+                                        self.send_request(peer, request, sender).await.unwrap();
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                         _ => {}
                     };
                 }
@@ -162,15 +185,79 @@ impl EventLoop {
                         match dht_event {
                             DhtEvent::GetProviders { key, sender } => {
                                 let query_id = self.managed_swarm.get_providers(key);
-                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
+                                let (new_sender, new_receiver) = oneshot::channel();
+                                self.pending_kademlia_queries.insert(query_id, new_sender);
+
+                                let original_sender = sender;
+                                tokio::spawn(async move {
+                                    match new_receiver.await {
+                                        Ok(Ok(QueryResult::GetProviders(providers_result))) => {
+                                            original_sender.send(Ok(providers_result.providers)).unwrap();
+                                        }
+                                        Ok(Err(e)) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
+                                        }
+                                        Err(e) => {
+                                            original_sender.send(Err(format!("Channel receive error: {}", e))).unwrap();
+                                        }
+                                        Ok(other_result) => {
+                                            original_sender.send(Err(format!("Unexpected QueryResult for GetProviders: {:?}", other_result))).unwrap();
+                                        }
+                                    }
+                                });
                             }
                             DhtEvent::GetRecord { key, sender } => {
                                 let query_id = self.managed_swarm.get(key);
-                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
+                                let (new_sender, new_receiver) = oneshot::channel();
+                                self.pending_kademlia_queries.insert(query_id, new_sender);
+
+                                let original_sender = sender;
+                                tokio::spawn(async move {
+                                    match new_receiver.await {
+                                        Ok(Ok(QueryResult::GetRecord(record_result))) => {
+                                            original_sender.send(Ok(record_result.record)).unwrap();
+                                        }
+                                        Ok(Err(e)) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
+                                        }
+                                        Err(e) => {
+                                            original_sender.send(Err(format!("Channel receive error: {}", e))).unwrap();
+                                        }
+                                        Ok(other_result) => {
+                                            original_sender.send(Err(format!("Unexpected QueryResult for GetRecord: {:?}", other_result))).unwrap();
+                                        }
+                                    }
+                                });
                             }
                             DhtEvent::PutRecord { key, sender, value } => {
                                 let query_id = self.managed_swarm.put(key, value);
-                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
+                                let (new_sender, new_receiver) = oneshot::channel();
+                                self.pending_kademlia_queries.insert(query_id, new_sender);
+
+                                let original_sender = sender;
+                                tokio::spawn(async move {
+                                    match new_receiver.await {
+                                        Ok(Ok(QueryResult::PutRecord(put_record_result))) => {
+                                            match put_record_result {
+                                                Ok(put_record_ok) => {
+                                                    original_sender.send(Ok(put_record_ok.key)).unwrap();
+                                                }
+                                                Err(e) => {
+                                                    original_sender.send(Err(e.to_string())).unwrap();
+                                                }
+                                            }
+                                        }
+                                        Ok(Err(e)) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
+                                        }
+                                        Err(e) => {
+                                            original_sender.send(Err(format!("Channel receive error: {}", e))).unwrap();
+                                        }
+                                        Ok(other_result) => {
+                                            original_sender.send(Err(format!("Unexpected QueryResult for PutRecord: {:?}", other_result))).unwrap();
+                                        }
+                                    }
+                                });
                             }
                             DhtEvent::SendRequest { sender, request, peer } => {
                                 self.send_request(peer, request, sender).await.unwrap();
