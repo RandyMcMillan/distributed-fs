@@ -55,11 +55,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let swarm_addr = format!("/ip4/{}/tcp/0", addr);
     let api_addr = format!("{}:50051", addr);
 
+    let bootstrap_nodes: Vec<libp2p::Multiaddr> = vec![
+        // Example bootstrap nodes (replace with actual public nodes for a real deployment)
+        // "/ip4/127.0.0.1/tcp/4001/p2p/Qm..." // Example format
+    ];
+
     let node = {
         if node_type == "api" {
-            Node::new_api_node(&swarm_addr, &api_addr).await.unwrap()
+            Node::new_api_node(&swarm_addr, &api_addr, bootstrap_nodes).await.unwrap()
         } else if node_type == "storage" {
-            Node::new_storage_node(&swarm_addr).await.unwrap()
+            Node::new_storage_node(&swarm_addr, bootstrap_nodes).await.unwrap()
         } else {
             panic!("node_type should be 'storage' or 'api'")
         }

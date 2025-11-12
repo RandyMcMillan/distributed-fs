@@ -38,7 +38,7 @@ pub struct ApiNode {
 }
 
 impl ApiNode {
-    pub async fn new(swarm_addr: &str, api_addr: SocketAddr) -> Self {
+    pub async fn new(swarm_addr: &str, api_addr: SocketAddr, bootstrap_nodes: Vec<libp2p::Multiaddr>) -> Self {
         let (api_req_sender, api_req_receiver) = mpsc::channel::<DhtRequestType>(32);
         let (api_res_sender, api_res_receiver) = broadcast::channel::<DhtResponseType>(32);
 
@@ -47,7 +47,9 @@ impl ApiNode {
         let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
         let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
 
-        let managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap()).await;
+        let mut managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap(), bootstrap_nodes).await;
+        managed_swarm.bootstrap().await;
+
         let event_loop = EventLoop::new(managed_swarm, requests_sender, dht_event_receiver);
 
         // Run swarm(kad) eventloop

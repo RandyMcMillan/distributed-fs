@@ -33,14 +33,14 @@ impl From<StorageNode> for Node {
 }
 
 impl Node {
-    pub async fn new_api_node(swarm_addr: &str, api_addr: &str) -> Result<Node, String> {
-        Ok(ApiNode::new(swarm_addr, api_addr.parse().unwrap())
+    pub async fn new_api_node(swarm_addr: &str, api_addr: &str, bootstrap_nodes: Vec<libp2p::Multiaddr>) -> Result<Node, String> {
+        Ok(ApiNode::new(swarm_addr, api_addr.parse().unwrap(), bootstrap_nodes)
             .await
             .into())
     }
 
-    pub async fn new_storage_node(swarm_addr: &str) -> Result<Node, String> {
-        Ok(StorageNode::new(swarm_addr).await.into())
+    pub async fn new_storage_node(swarm_addr: &str, bootstrap_nodes: Vec<libp2p::Multiaddr>) -> Result<Node, String> {
+        Ok(StorageNode::new(swarm_addr, bootstrap_nodes).await.into())
     }
 
     pub async fn run(self) {

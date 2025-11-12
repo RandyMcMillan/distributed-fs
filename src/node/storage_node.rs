@@ -24,11 +24,13 @@ pub struct StorageNode {
 }
 
 impl StorageNode {
-    pub async fn new(swarm_addr: &str) -> Self {
+    pub async fn new(swarm_addr: &str, bootstrap_nodes: Vec<libp2p::Multiaddr>) -> Self {
         let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
         let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
 
-        let managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap()).await;
+        let mut managed_swarm = ManagedSwarm::new(swarm_addr.parse().unwrap(), bootstrap_nodes).await;
+        managed_swarm.bootstrap().await;
+
         let event_loop = EventLoop::new(managed_swarm, requests_sender, dht_event_receiver);
 
         tokio::spawn(async move {

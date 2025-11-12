@@ -15,11 +15,15 @@ use crate::behaviour::{FileRequest, MyBehaviour, OutEvent};
 pub struct ManagedSwarm(pub Swarm<MyBehaviour>);
 
 impl ManagedSwarm {
-    pub async fn new(addr: Multiaddr) -> Self {
-        let mut swarm = create_swarm().await;
+    pub async fn new(addr: Multiaddr, bootstrap_nodes: Vec<Multiaddr>) -> Self {
+        let mut swarm = create_swarm(bootstrap_nodes).await;
         swarm.listen_on(addr).unwrap();
 
         Self(swarm)
+    }
+
+    pub async fn bootstrap(&mut self) {
+        self.0.behaviour_mut().kademlia.bootstrap().unwrap();
     }
 
     pub async fn get(&mut self, key: Key) -> Result<Record, String> {
@@ -136,15 +140,20 @@ impl ManagedSwarm {
     }
 }
 
-async fn create_swarm() -> Swarm<MyBehaviour> {
+async fn create_swarm(bootstrap_nodes: Vec<Multiaddr>) -> Swarm<MyBehaviour> {
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     println!("{:?}", local_peer_id);
 
-    let transport = development_transport(local_key).await.unwrap();
+    let transport = development_transport(local_key.clone()).await.unwrap();
 
     let store = MemoryStore::new(local_peer_id);
-    let kademlia = Kademlia::new(local_peer_id, store);
+    let mut kademlia = Kademlia::new(local_peer_id, store);
+
+    for addr in bootstrap_nodes {
+        kademlia.add_address(&PeerId::from_public_key(&local_key.public()), addr);
+    }
+
     let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
     let behaviour = MyBehaviour {
         kademlia,
