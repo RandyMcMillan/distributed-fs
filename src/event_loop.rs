@@ -243,7 +243,7 @@ impl EventLoop {
                                                     original_sender.send(Ok(put_record_ok.key)).unwrap();
                                                 }
                                                 Err(e) => {
-                                                    original_sender.send(Err(e.to_string())).unwrap();
+                                                    original_sender.send(Err(format!("{:?}", e))).unwrap();
                                                 }
                                             }
                                         }
