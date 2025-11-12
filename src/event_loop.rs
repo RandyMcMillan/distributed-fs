@@ -192,7 +192,7 @@ impl EventLoop {
                                 tokio::spawn(async move {
                                     match new_receiver.await {
                                         Ok(Ok(QueryResult::GetProviders(providers_result))) => {
-                                            original_sender.send(Ok(providers_result.unwrap().providers)).unwrap();
+                                            original_sender.send(Ok(providers_result.unwrap().providers.into_iter().collect())).unwrap();
                                         }
                                         Ok(Err(e)) => {
                                             original_sender.send(Err(e.to_string())).unwrap();
@@ -215,7 +215,7 @@ impl EventLoop {
                                 tokio::spawn(async move {
                                     match new_receiver.await {
                                         Ok(Ok(QueryResult::GetRecord(record_result))) => {
-                                            original_sender.send(Ok(record_result.unwrap().records)).unwrap();
+                                            original_sender.send(Ok(record_result.unwrap().records[0].record.clone())).unwrap();
                                         }
                                         Ok(Err(e)) => {
                                             original_sender.send(Err(e.to_string())).unwrap();
