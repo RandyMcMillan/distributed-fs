@@ -66,6 +66,7 @@ pub struct EventLoop {
     ledgers: HashMap<PeerId, Ledger>,
     pending_requests:
         HashMap<RequestId, oneshot::Sender<Result<FileResponse, Box<dyn Error + Send>>>>,
+    pending_kademlia_queries: HashMap<libp2p::kad::QueryId, oneshot::Sender<Result<QueryResult, String>>>,
 }
 
 impl EventLoop {
@@ -80,6 +81,7 @@ impl EventLoop {
             events_receiver,
             ledgers: Default::default(),
             pending_requests: Default::default(),
+            pending_kademlia_queries: Default::default(),
         }
     }
 
@@ -159,13 +161,16 @@ impl EventLoop {
                     if let  Some(dht_event) = dht_event {
                         match dht_event {
                             DhtEvent::GetProviders { key, sender } => {
-                                sender.send(self.managed_swarm.get_providers(key).await).unwrap();
+                                let query_id = self.managed_swarm.get_providers(key);
+                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
                             }
                             DhtEvent::GetRecord { key, sender } => {
-                                sender.send(self.managed_swarm.get(key).await).unwrap();
+                                let query_id = self.managed_swarm.get(key);
+                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
                             }
                             DhtEvent::PutRecord { key, sender, value } => {
-                                sender.send(self.managed_swarm.put(key, value).await).unwrap();
+                                let query_id = self.managed_swarm.put(key, value);
+                                self.pending_kademlia_queries.insert(query_id, sender.map_err(|e| e.to_string()).boxed());
                             }
                             DhtEvent::SendRequest { sender, request, peer } => {
                                 self.send_request(peer, request, sender).await.unwrap();

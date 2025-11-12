@@ -26,27 +26,12 @@ impl ManagedSwarm {
         self.0.behaviour_mut().kademlia.bootstrap().unwrap();
     }
 
-    pub async fn get(&mut self, key: Key) -> Result<Record, String> {
+    pub fn get(&mut self, key: Key) -> libp2p::kad::QueryId {
         let behaviour = self.0.behaviour_mut();
-
-        behaviour.kademlia.get_record(&key, Quorum::One);
-
-        let res = loop {
-            if let SwarmEvent::Behaviour(OutEvent::Kademlia(
-                KademliaEvent::OutboundQueryCompleted { result, .. },
-            )) = self.0.select_next_some().await
-            {
-                break result;
-            }
-        };
-
-        match res {
-            QueryResult::GetRecord(Ok(ok)) => Ok(ok.records.get(0).unwrap().record.clone()),
-            _ => Err("Record not found".to_owned()),
-        }
+        behaviour.kademlia.get_record(&key, Quorum::One)
     }
 
-    pub async fn put(&mut self, key: Key, value: Vec<u8>) -> Result<Key, String> {
+    pub fn put(&mut self, key: Key, value: Vec<u8>) -> libp2p::kad::QueryId {
         let record = Record {
             key,
             value,
@@ -58,73 +43,20 @@ impl ManagedSwarm {
         behaviour
             .kademlia
             .put_record(record.clone(), Quorum::One)
-            .expect("Failed to put record locally");
-
-        let res = loop {
-            if let SwarmEvent::Behaviour(OutEvent::Kademlia(
-                KademliaEvent::OutboundQueryCompleted { result, .. },
-            )) = self.0.select_next_some().await
-            {
-                break result;
-            }
-        };
-
-        match res {
-            QueryResult::PutRecord(d) => match d {
-                Ok(dd) => Ok(dd.key),
-                Err(e) => Err(format!("{:?}", e)),
-            },
-            _ => Err("Something went wrong".to_string()),
-        }
+            .expect("Failed to put record locally")
     }
 
-    pub async fn start_providing(&mut self, key: Key) -> Result<Key, String> {
+    pub fn start_providing(&mut self, key: Key) -> libp2p::kad::QueryId {
         let behaviour = self.0.behaviour_mut();
-
         behaviour
             .kademlia
             .start_providing(key.clone())
-            .expect("Failed to start providing key");
-
-        let res = loop {
-            if let SwarmEvent::Behaviour(OutEvent::Kademlia(
-                KademliaEvent::OutboundQueryCompleted { result, .. },
-            )) = self.0.select_next_some().await
-            {
-                break result;
-            }
-        };
-
-        match res {
-            QueryResult::StartProviding(r) => match r {
-                Ok(_r) => Ok(key),
-                Err(_error) => Err("Error on StartProviding".to_string()),
-            },
-            _ => Err("Something went wrong".to_string()),
-        }
+            .expect("Failed to start providing key")
     }
 
-    pub async fn get_providers(&mut self, key: Key) -> Result<Vec<PeerId>, String> {
+    pub fn get_providers(&mut self, key: Key) -> libp2p::kad::QueryId {
         let behaviour = self.0.behaviour_mut();
-
-        behaviour.kademlia.get_providers(key);
-
-        let res = loop {
-            if let SwarmEvent::Behaviour(OutEvent::Kademlia(
-                KademliaEvent::OutboundQueryCompleted { result, .. },
-            )) = self.0.select_next_some().await
-            {
-                break result;
-            }
-        };
-
-        match res {
-            QueryResult::GetProviders(r) => match r {
-                Ok(providers) => Ok(providers.closest_peers),
-                Err(_error) => Err("Error on GetProviders".to_string()),
-            },
-            _ => Err("Something went wrong".to_string()),
-        }
+        behaviour.kademlia.get_providers(key)
     }
 
     pub async fn send_request(
