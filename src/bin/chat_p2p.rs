@@ -28,7 +28,7 @@ enum OutEvent {
     name = "chat_p2p",
     version,
     about = "Peer-to-peer chat demo",
-    long_about = "Start a small libp2p chat node that discovers peers over mDNS and broadcasts messages with floodsub.\n\nUse --dial to connect to an existing peer, then type lines into stdin to broadcast them."
+    long_about = "Start a small libp2p chat node that discovers peers over mDNS and broadcasts messages with floodsub.\n\nUse --dial to connect to an existing peer, then type lines into stdin to broadcast them. Use --logging to control output verbosity."
 )]
 struct Cli {
     #[arg(
@@ -38,6 +38,14 @@ struct Cli {
         long_help = "Dial an existing peer at this multiaddr. Use the listening address printed by another chat node to join the same mesh."
     )]
     dial: Option<Multiaddr>,
+
+    #[arg(
+        long,
+        default_value = "info",
+        value_parser = ["warn", "info", "debug", "trace"],
+        help = "Set the log verbosity level"
+    )]
+    logging: String,
 }
 
 impl From<FloodsubEvent> for OutEvent {
@@ -55,6 +63,7 @@ impl From<MdnsEvent> for OutEvent {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
+    gnostr_p2p::init_logging(&cli.logging);
     let topic = Topic::new("chat");
     let subscription_topic = topic.clone();
 
