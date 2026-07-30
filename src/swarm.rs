@@ -1,9 +1,8 @@
-use futures::StreamExt;
 use libp2p::{
-    identity,
-    kad::{store::MemoryStore, Behaviour as Kademlia, Config as KademliaConfig, RecordKey as Key},
+    kad::{
+        store::MemoryStore, Behaviour as Kademlia, Config as KademliaConfig, Quorum, RecordKey as Key,
+    },
     request_response::OutboundRequestId,
-    swarm::SwarmEvent,
     Multiaddr, PeerId, Swarm, SwarmBuilder, StreamProtocol,
 };
 
@@ -38,7 +37,7 @@ impl ManagedSwarm {
         self.0
             .behaviour_mut()
             .kademlia
-            .put_record(record)
+            .put_record(record, Quorum::One)
             .expect("Failed to put record locally")
     }
 

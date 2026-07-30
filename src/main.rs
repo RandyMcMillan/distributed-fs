@@ -4,7 +4,7 @@ use secp256k1::{Message, Secp256k1, SecretKey, Signature};
 use std::env;
 use std::error::Error;
 
-use tcp_chat::node::Node;
+use gnostr_p2p::node::Node;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

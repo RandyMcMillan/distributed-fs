@@ -8,13 +8,16 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tokio::sync::{mpsc, oneshot};
 
-use tcp_chat::api::utils::{get_cids_with_sizes, resolve_cid, split_get_file_request};
-use tcp_chat::behaviour::{FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse, ProvideResponse};
-use tcp_chat::constants::{MAX_CHUNK_SIZE, MAX_DHT_STORED_CHUNKS};
-use tcp_chat::entry::{Children, Entry, EntryMetaData};
-use tcp_chat::event_loop::{DhtEvent, EventLoop, ReqResEvent};
-use tcp_chat::node::NodeType;
-use tcp_chat::swarm::ManagedSwarm;
+use gnostr_p2p::api::utils::{get_cids_with_sizes, resolve_cid, split_get_file_request};
+use gnostr_p2p::behaviour::{
+    FileRequest, FileRequestType, FileResponse, FileResponseType, GetFileResponse,
+    ProvideResponse,
+};
+use gnostr_p2p::constants::{MAX_CHUNK_SIZE, MAX_DHT_STORED_CHUNKS};
+use gnostr_p2p::entry::{Children, Entry, EntryMetaData};
+use gnostr_p2p::event_loop::{DhtEvent, EventLoop, ReqResEvent};
+use gnostr_p2p::node::NodeType;
+use gnostr_p2p::swarm::ManagedSwarm;
 
 const DEFAULT_PUBLIC_KEY: &str = "023887a11113c0c72d1f887794490e70ad0f0f7cf81ab43de2998cbdab5b7bfd5a";
 const DEFAULT_PRIVATE_KEY: &str = "4b3bee129b6f2a9418d1a617803913e3fee922643c628bc8fb48e0b189d104de";
@@ -23,8 +26,6 @@ const DOWNLOAD_DIR: &str = "./download";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    env_logger::init();
-
     let args: Vec<String> = std::env::args().collect();
     let command = args.get(1).map(String::as_str).unwrap_or("help");
 
@@ -229,8 +230,8 @@ async fn download_entry(
         let mut file = fs::File::create(target_path)?;
         for batch in batches {
             let response = request_file_chunks(dht_event_sender, peer, batch).await?;
-            for chunk in response.content {
-                file.write_all(&chunk)?;
+            for chunk in response.content.into_iter() {
+                file.write_all(chunk.as_slice())?;
             }
         }
     }

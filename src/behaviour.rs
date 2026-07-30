@@ -9,7 +9,7 @@ use libp2p::request_response::{
 };
 use libp2p::{
     mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
-    swarm::{derive_prelude::*, NetworkBehaviour, StreamProtocol},
+    swarm::{NetworkBehaviour, StreamProtocol},
 };
 use serde::{Deserialize, Serialize};
 use std::{iter, str};

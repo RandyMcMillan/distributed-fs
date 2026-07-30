@@ -5,7 +5,10 @@ use libp2p::request_response::{
 };
 use libp2p::swarm::SwarmEvent;
 use libp2p::{
-    kad::{Event as KademliaEvent, QueryResult, Record, RecordKey as Key},
+    kad::{
+        Event as KademliaEvent, GetProvidersOk, GetRecordOk, PutRecordOk, QueryResult, Record,
+        RecordKey as Key,
+    },
     mdns::Event as MdnsEvent,
 };
 use libp2p::PeerId;
@@ -159,7 +162,7 @@ impl EventLoop {
                         }
                         SwarmEvent::Behaviour(OutEvent::Kademlia(e)) => {
                             match e {
-                                KademliaEvent::OutboundQueryCompleted { id, result, .. } => {
+                                KademliaEvent::OutboundQueryProgressed { id, result, .. } => {
                                     if let Some(sender) = self.pending_kademlia_queries.remove(&id) {
                                         sender.send(Ok(result)).unwrap();
                                     } else {
@@ -195,8 +198,22 @@ impl EventLoop {
                                 let original_sender = sender;
                                 tokio::spawn(async move {
                                     match new_receiver.await {
-                                        Ok(Ok(QueryResult::GetProviders(providers_result))) => {
-                                            original_sender.send(Ok(providers_result.unwrap().providers.into_iter().collect())).unwrap();
+                                        Ok(Ok(QueryResult::GetProviders(Ok(
+                                            GetProvidersOk::FoundProviders { providers, .. },
+                                        )))) => {
+                                            original_sender
+                                                .send(Ok(providers.into_iter().collect()))
+                                                .unwrap();
+                                        }
+                                        Ok(Ok(QueryResult::GetProviders(Ok(
+                                            GetProvidersOk::FinishedWithNoAdditionalRecord {
+                                                closest_peers,
+                                            },
+                                        )))) => {
+                                            original_sender.send(Ok(closest_peers)).unwrap();
+                                        }
+                                        Ok(Ok(QueryResult::GetProviders(Err(e)))) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
                                         }
                                         Ok(Err(e)) => {
                                             original_sender.send(Err(e.to_string())).unwrap();
@@ -218,8 +235,23 @@ impl EventLoop {
                                 let original_sender = sender;
                                 tokio::spawn(async move {
                                     match new_receiver.await {
-                                        Ok(Ok(QueryResult::GetRecord(record_result))) => {
-                                            original_sender.send(Ok(record_result.unwrap().records[0].record.clone())).unwrap();
+                                        Ok(Ok(QueryResult::GetRecord(Ok(GetRecordOk::FoundRecord(
+                                            record,
+                                        ))))) => {
+                                            original_sender.send(Ok(record.record)).unwrap();
+                                        }
+                                        Ok(Ok(QueryResult::GetRecord(Ok(
+                                            GetRecordOk::FinishedWithNoAdditionalRecord {
+                                                cache_candidates,
+                                            },
+                                        )))) => {
+                                            original_sender.send(Err(format!(
+                                                "record not found; cache candidates: {:?}",
+                                                cache_candidates
+                                            ))).unwrap();
+                                        }
+                                        Ok(Ok(QueryResult::GetRecord(Err(e)))) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
                                         }
                                         Ok(Err(e)) => {
                                             original_sender.send(Err(e.to_string())).unwrap();
@@ -241,15 +273,11 @@ impl EventLoop {
                                 let original_sender = sender;
                                 tokio::spawn(async move {
                                     match new_receiver.await {
-                                        Ok(Ok(QueryResult::PutRecord(put_record_result))) => {
-                                            match put_record_result {
-                                                Ok(put_record_ok) => {
-                                                    original_sender.send(Ok(put_record_ok.key)).unwrap();
-                                                }
-                                                Err(e) => {
-                                                    original_sender.send(Err(format!("{:?}", e))).unwrap();
-                                                }
-                                            }
+                                        Ok(Ok(QueryResult::PutRecord(Ok(PutRecordOk { key })))) => {
+                                            original_sender.send(Ok(key)).unwrap();
+                                        }
+                                        Ok(Ok(QueryResult::PutRecord(Err(e)))) => {
+                                            original_sender.send(Err(e.to_string())).unwrap();
                                         }
                                         Ok(Err(e)) => {
                                             original_sender.send(Err(e.to_string())).unwrap();
