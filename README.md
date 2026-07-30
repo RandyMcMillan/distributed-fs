@@ -12,11 +12,11 @@ cargo build
 
 ### Node entrypoint
 
-The main binary accepts a node role and host/IP:
+The main binary is `gnostr-p2p` and accepts a node role plus host/IP:
 
 ```bash
-cargo run -- api 127.0.0.1
-cargo run -- storage 127.0.0.1
+cargo run --bin gnostr-p2p -- api 127.0.0.1
+cargo run --bin gnostr-p2p -- storage 127.0.0.1
 ```
 
 ### P2P client
@@ -31,6 +31,14 @@ cargo run --bin client -- download <location> <signature>
 ```bash
 cargo run --bin chat_p2p
 cargo run --bin chat_p2p /ip4/127.0.0.1/tcp/<port>
+```
+
+### Full demo
+
+Run the end-to-end demo script to build the workspace, start nodes, upload sample data, and download it back:
+
+```bash
+bash scripts/run.sh
 ```
 
 ## API docs
