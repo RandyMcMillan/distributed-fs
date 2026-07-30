@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use secp256k1::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Message, Secp256k1, SecretKey, Signature};
+use std::env;
 use std::error::Error;
 
 use gnostr_p2p::node::Node;
@@ -35,12 +36,25 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    #[command(about = "Generate an Ed25519 keypair for signing and identity")]
+    #[command(about = "Generate a secp256k1 keypair for signing and identity")]
     GenKeypair,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let raw_args: Vec<String> = env::args().collect();
+    if raw_args.iter().any(|arg| arg == "-h" || arg == "--help")
+        && raw_args.iter().all(|arg| arg != "gen-keypair")
+    {
+        let role = raw_args
+            .windows(2)
+            .find(|pair| pair[0] == "--role")
+            .map(|pair| pair[1].as_str())
+            .unwrap_or("storage");
+        print_role_help(role);
+        return Ok(());
+    }
+
     let cli = Cli::parse();
 
     if matches!(cli.command, Some(Command::GenKeypair)) {
@@ -56,6 +70,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Secret Key: {:?}", secret_key.secret_bytes());
 
         return Ok(());
+    }
+
+    fn print_role_help(role: &str) {
+        match role {
+            "api" => {
+                println!("Usage: gnostr-p2p --role api [--addr ADDR]\n");
+                println!("API node:");
+                println!("  Runs the gRPC-facing node that accepts uploads and downloads.");
+                println!("  It coordinates DHT writes, request/response traffic, and storage-node discovery.");
+                println!();
+                println!("Options:");
+                println!("  --role api     Run the API node");
+                println!("  --addr ADDR    Bind host/IP for the swarm listener and gRPC server");
+            }
+            _ => {
+                println!("Usage: gnostr-p2p --role storage [--addr ADDR]\n");
+                println!("Storage node:");
+                println!("  Runs a storage peer that stores chunks and serves them to other peers.");
+                println!("  Use this for decentralized chunk replication and retrieval.");
+                println!();
+                println!("Options:");
+                println!("  --role storage Run the storage node");
+                println!("  --addr ADDR    Bind host/IP for the swarm listener");
+            }
+        }
     }
 
     let swarm_addr = format!("/ip4/{}/tcp/0", cli.addr);
