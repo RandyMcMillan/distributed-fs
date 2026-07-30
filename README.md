@@ -24,7 +24,7 @@ cargo run --bin gnostr-p2p -- --role storage --addr 127.0.0.1
 ### P2P client
 
 ```bash
-cargo run --bin client -- --upload ./my_files
+cargo run --bin client -- --path ./my_files
 cargo run --bin client -- --download <location> <signature>
 ```
 

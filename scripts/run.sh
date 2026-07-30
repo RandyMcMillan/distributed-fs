@@ -119,7 +119,7 @@ sleep "${DEMO_SETTLE_SECONDS:-10}"
 echo "Uploading sample content..."
 UPLOAD_OUTPUT="$(
     cd "$ROOT_DIR"
-    DEMO_EXIT_AFTER_UPLOAD=1 cargo run --quiet --bin client -- --upload "$DEMO_INPUT"
+    DEMO_EXIT_AFTER_UPLOAD=1 cargo run --quiet --bin client -- --path "$DEMO_INPUT"
 )"
 echo "$UPLOAD_OUTPUT"
 
