@@ -22,6 +22,10 @@ impl ManagedSwarm {
         let _ = self.0.behaviour_mut().kademlia.bootstrap();
     }
 
+    pub fn local_peer_id(&self) -> PeerId {
+        *self.0.local_peer_id()
+    }
+
     pub fn get(&mut self, key: Key) -> libp2p::kad::QueryId {
         self.0.behaviour_mut().kademlia.get_record(key)
     }

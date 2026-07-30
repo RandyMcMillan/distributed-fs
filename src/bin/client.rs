@@ -66,11 +66,13 @@ struct Cli {
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     gnostr_p2p::init_logging(&cli.logging);
+    let serve_as_storage = cli.path.is_some();
 
     let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
     let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
 
     let mut swarm = ManagedSwarm::new("/ip4/0.0.0.0/tcp/0".parse()?, Vec::new()).await;
+    let local_peer_id = swarm.local_peer_id();
     swarm.bootstrap().await;
 
     let event_loop = EventLoop::new(swarm, requests_sender, dht_event_receiver);
@@ -80,7 +82,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let request_sender = dht_event_sender.clone();
     tokio::spawn(async move {
-        serve_requests(requests_receiver, request_sender).await;
+        serve_requests(requests_receiver, request_sender, serve_as_storage).await;
     });
 
     let secp = Secp256k1::new();
@@ -90,7 +92,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match (cli.path, cli.download) {
         (Some(path), None) => {
             let (location, signature) =
-                upload_directory(Path::new(&path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
+                upload_directory(
+                    Path::new(&path),
+                    &dht_event_sender,
+                    &secp,
+                    &secret_key,
+                    &public_key,
+                    local_peer_id,
+                    serve_as_storage,
+                )
+                .await?;
             println!("UPLOAD_OK location={} signature={}", location, signature);
             println!(
                 "Download it with: cargo run --bin client -- --download {} {} --logging info",
@@ -121,12 +132,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn serve_requests(
     mut requests_receiver: mpsc::Receiver<ReqResEvent>,
     dht_event_sender: mpsc::Sender<DhtEvent>,
+    serve_as_storage: bool,
 ) {
     while let Some(req) = requests_receiver.recv().await {
         let ReqResEvent::InboundRequest { request, channel, .. } = req;
         match request.0 {
             FileRequestType::GetNodeTypeRequest => {
-                let response = FileResponse(FileResponseType::GetNodeTypeResponse(NodeType::ApiNode));
+                let response = FileResponse(FileResponseType::GetNodeTypeResponse(if serve_as_storage {
+                    NodeType::StorageNode
+                } else {
+                    NodeType::ApiNode
+                }));
                 let (sender, receiver) = oneshot::channel();
                 let _ = dht_event_sender
                     .send(DhtEvent::SendResponse {
@@ -187,11 +203,16 @@ async fn upload_directory(
     secp: &Secp256k1<secp256k1::All>,
     secret_key: &SecretKey,
     public_key: &PublicKey,
+    local_peer_id: libp2p::PeerId,
+    serve_as_storage: bool,
 ) -> Result<(String, String), Box<dyn Error>> {
     fs::create_dir_all(CACHE_DIR)?;
     let meta = build_metadata(path)?;
     let signature = sign_entry(secp, secret_key, public_key, &meta.name);
-    let peers = wait_for_storage_nodes(dht_event_sender).await?;
+    let mut peers = wait_for_storage_nodes(dht_event_sender).await?;
+    if peers.is_empty() && serve_as_storage {
+        peers.push(local_peer_id);
+    }
 
     let entry = Entry {
         signature: signature.clone(),
@@ -223,6 +244,10 @@ async fn upload_directory(
     let request = FileRequest(FileRequestType::ProvideRequest(cids_with_sizes));
 
     for peer in peers {
+        if peer == local_peer_id {
+            continue;
+        }
+
         let (sender, receiver) = oneshot::channel();
         dht_event_sender
             .send(DhtEvent::SendRequest {
