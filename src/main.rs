@@ -12,7 +12,7 @@ use gnostr_p2p::node::Node;
     name = "gnostr-p2p",
     version,
     about = "Distributed storage node",
-    long_about = "Start an API node, storage node, or generate a signing keypair for the decentralized Rust network."
+    long_about = "Start an API node, storage node, or generate a signing keypair for the decentralized Rust network.\n\nUse --logging to control the verbosity of the node logs."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -32,6 +32,14 @@ struct Cli {
         help = "Bind the node and gRPC listener to this host or IP"
     )]
     addr: String,
+
+    #[arg(
+        long,
+        default_value = "info",
+        value_parser = ["warn", "info", "debug", "trace"],
+        help = "Set the log verbosity level"
+    )]
+    logging: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -56,6 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let cli = Cli::parse();
+    gnostr_p2p::init_logging(&cli.logging);
 
     if matches!(cli.command, Some(Command::GenKeypair)) {
         let secp = Secp256k1::new();
@@ -83,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("Options:");
                 println!("  --role api     Start the API node role");
                 println!("  --addr ADDR    Bind host/IP for the swarm listener and gRPC server");
+                println!("  --logging LVL  Set log verbosity: warn, info, debug, or trace");
                 println!();
                 println!("Typical flow:");
                 println!("  1. Start 1 API node and multiple storage nodes");
@@ -98,6 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("Options:");
                 println!("  --role storage Start the storage node role");
                 println!("  --addr ADDR    Bind host/IP for the swarm listener");
+                println!("  --logging LVL  Set log verbosity: warn, info, debug, or trace");
                 println!();
                 println!("Typical flow:");
                 println!("  1. Start at least one storage node before uploading");
