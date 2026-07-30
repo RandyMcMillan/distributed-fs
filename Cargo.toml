@@ -29,6 +29,7 @@ listen-onion-service = [
 ]
 
 [dependencies]
+prost = "0.9"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9"
