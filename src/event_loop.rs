@@ -348,7 +348,9 @@ impl EventLoop {
 
     pub async fn get_storage_nodes(&mut self) -> Result<Vec<PeerId>, String> {
         let mut storage_nodes = Vec::new();
+        let mut discovered_nodes = Vec::new();
         for (&peer_id, ledger) in self.ledgers.iter() {
+            discovered_nodes.push(peer_id);
             if let NodeType::StorageNode = ledger.node_type {
                 storage_nodes.push(peer_id);
 
@@ -356,6 +358,11 @@ impl EventLoop {
                     break;
                 }
             }
+        }
+
+        if storage_nodes.is_empty() {
+            println!("No confirmed storage nodes yet; falling back to discovered peers");
+            return Ok(discovered_nodes.into_iter().take(3).collect());
         }
 
         Ok(storage_nodes)
