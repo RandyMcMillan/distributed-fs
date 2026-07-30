@@ -356,11 +356,15 @@ fn sign_entry(
 }
 
 fn build_metadata(path: &Path) -> Result<EntryMetaData, Box<dyn Error>> {
-    let name = path
-        .file_name()
-        .ok_or("path must point to a file or directory")?
-        .to_string_lossy()
-        .to_string();
+    let name = if let Some(name) = path.file_name() {
+        name.to_string_lossy().to_string()
+    } else {
+        path.canonicalize()?
+            .file_name()
+            .ok_or("path must point to a file or directory")?
+            .to_string_lossy()
+            .to_string()
+    };
     let mut children = Vec::new();
     if path.is_file() {
         children.push(build_file_child(path, path)?);
