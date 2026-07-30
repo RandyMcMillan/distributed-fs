@@ -209,7 +209,7 @@ async fn upload_directory(
     fs::create_dir_all(CACHE_DIR)?;
     let meta = build_metadata(path)?;
     let signature = sign_entry(secp, secret_key, public_key, &meta.name);
-    let mut peers = wait_for_storage_nodes(dht_event_sender).await?;
+    let mut peers = wait_for_storage_nodes(dht_event_sender, serve_as_storage).await?;
     if peers.is_empty() && serve_as_storage {
         peers.push(local_peer_id);
     }
@@ -353,6 +353,7 @@ async fn request_file_chunks(
 
 async fn wait_for_storage_nodes(
     dht_event_sender: &mpsc::Sender<DhtEvent>,
+    allow_empty: bool,
 ) -> Result<Vec<libp2p::PeerId>, Box<dyn Error>> {
     for _ in 0..60 {
         let (sender, receiver) = oneshot::channel();
@@ -371,7 +372,11 @@ async fn wait_for_storage_nodes(
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     }
 
-    Err("no storage nodes discovered".into())
+    if allow_empty {
+        Ok(Vec::new())
+    } else {
+        Err("no storage nodes discovered".into())
+    }
 }
 
 fn sign_entry(
