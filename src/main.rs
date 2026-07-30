@@ -77,22 +77,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "api" => {
                 println!("Usage: gnostr-p2p --role api [--addr ADDR]\n");
                 println!("API node:");
-                println!("  Runs the gRPC-facing node that accepts uploads and downloads.");
-                println!("  It coordinates DHT writes, request/response traffic, and storage-node discovery.");
+                println!("  Runs the peer that accepts client uploads/downloads and orchestrates storage peers.");
+                println!("  It handles metadata writes, storage-node discovery, and request/response forwarding.");
                 println!();
                 println!("Options:");
-                println!("  --role api     Run the API node");
+                println!("  --role api     Start the API node role");
                 println!("  --addr ADDR    Bind host/IP for the swarm listener and gRPC server");
+                println!();
+                println!("Typical flow:");
+                println!("  1. Start 1 API node and multiple storage nodes");
+                println!("  2. Upload content with the Rust client binary");
+                println!("  3. Download by signature/location using the Rust client binary");
             }
             _ => {
                 println!("Usage: gnostr-p2p --role storage [--addr ADDR]\n");
                 println!("Storage node:");
-                println!("  Runs a storage peer that stores chunks and serves them to other peers.");
-                println!("  Use this for decentralized chunk replication and retrieval.");
+                println!("  Runs the peer that stores chunks and serves them back to requesters.");
+                println!("  Use this to replicate data, answer chunk requests, and participate in DHT lookups.");
                 println!();
                 println!("Options:");
-                println!("  --role storage Run the storage node");
+                println!("  --role storage Start the storage node role");
                 println!("  --addr ADDR    Bind host/IP for the swarm listener");
+                println!();
+                println!("Typical flow:");
+                println!("  1. Start at least one storage node before uploading");
+                println!("  2. Keep several storage nodes running for better replication");
+                println!("  3. Use the Rust client binary to request or fetch content");
             }
         }
     }

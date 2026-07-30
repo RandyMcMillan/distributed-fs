@@ -28,13 +28,14 @@ enum OutEvent {
     name = "chat_p2p",
     version,
     about = "Peer-to-peer chat demo",
-    long_about = "Start a small libp2p chat node that discovers peers over mDNS and broadcasts messages with floodsub."
+    long_about = "Start a small libp2p chat node that discovers peers over mDNS and broadcasts messages with floodsub.\n\nUse --dial to connect to an existing peer, then type lines into stdin to broadcast them."
 )]
 struct Cli {
     #[arg(
         long,
         value_name = "MULTIADDR",
-        help = "Dial an existing peer at this multiaddr"
+        help = "Dial an existing peer at this multiaddr",
+        long_help = "Dial an existing peer at this multiaddr. Use the listening address printed by another chat node to join the same mesh."
     )]
     dial: Option<Multiaddr>,
 }

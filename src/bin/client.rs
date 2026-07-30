@@ -30,13 +30,14 @@ const DOWNLOAD_DIR: &str = "./download";
     name = "client",
     version,
     about = "Peer-to-peer storage client",
-    long_about = "Upload directories into the decentralized network or download content back from peers."
+    long_about = "Upload directories into the decentralized network or download content back from peers.\n\nUse --upload to send a local directory tree into the DHT-backed network, or --download to fetch content by location and signature."
 )]
 struct Cli {
     #[arg(
         long,
         value_name = "PATH",
-        help = "Upload a local directory or file tree from this path"
+        help = "Upload a local directory or file tree from this path",
+        long_help = "Upload a local directory or file tree from this path. The client will build metadata, chunk large files, and push the entry into the network."
     )]
     upload: Option<PathBuf>,
 
@@ -44,7 +45,8 @@ struct Cli {
         long,
         value_names = ["LOCATION", "SIG"],
         num_args = 2,
-        help = "Download an entry by its location and signature"
+        help = "Download an entry by its location and signature",
+        long_help = "Download an entry by its location and signature. LOCATION is the path inside the entry, and SIG is the entry signature used as the record key."
     )]
     download: Option<Vec<String>>,
 }
