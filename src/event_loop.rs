@@ -2,7 +2,8 @@ use futures::StreamExt;
 use libp2p::kad::{record::Key, KademliaEvent, QueryResult, Record, GetProvidersOk, GetRecordOk, PutRecordOk, PutRecordError, GetProvidersError, GetRecordError};
 use libp2p::mdns::MdnsEvent;
 use libp2p::request_response::{
-    RequestId, RequestResponseEvent, RequestResponseMessage, ResponseChannel,
+    Event as RequestResponseEvent, Message as RequestResponseMessage, OutboundRequestId as RequestId,
+    ResponseChannel,
 };
 use libp2p::swarm::SwarmEvent;
 use libp2p::PeerId;
@@ -121,7 +122,7 @@ impl EventLoop {
                             }
                         }
                         SwarmEvent::Behaviour(OutEvent::RequestResponse(
-                            RequestResponseEvent::Message { message, peer },
+                            RequestResponseEvent::Message { message, peer, .. },
                         )) => {
                             match message {
                                 RequestResponseMessage::Response { response, request_id } => {

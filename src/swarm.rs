@@ -4,10 +4,10 @@ use libp2p::kad::store::MemoryStore;
 use libp2p::kad::{record::Key, Kademlia, KademliaEvent, QueryResult, Quorum, Record};
 use libp2p::request_response::RequestId;
 use libp2p::{
-    development_transport, identity,
+    identity,
     mdns::{Mdns, MdnsConfig},
     swarm::SwarmEvent,
-    Multiaddr, PeerId, Swarm,
+    Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 
 use crate::behaviour::{FileRequest, MyBehaviour, OutEvent};
@@ -77,8 +77,6 @@ async fn create_swarm(bootstrap_nodes: Vec<Multiaddr>) -> Swarm<MyBehaviour> {
     let local_peer_id = PeerId::from(local_key.public());
     println!("{:?}", local_peer_id);
 
-    let transport = development_transport(local_key.clone()).await.unwrap();
-
     let store = MemoryStore::new(local_peer_id);
     let mut kademlia = Kademlia::new(local_peer_id, store);
 
@@ -87,10 +85,19 @@ async fn create_swarm(bootstrap_nodes: Vec<Multiaddr>) -> Swarm<MyBehaviour> {
     }
 
     let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
-    let behaviour = MyBehaviour {
-        kademlia,
-        mdns,
-        request_response: MyBehaviour::create_req_res(),
-    };
-    Swarm::new(transport, behaviour, local_peer_id)
+    SwarmBuilder::with_existing_identity(local_key)
+        .with_tokio()
+        .with_tcp(
+            Default::default(),
+            (libp2p::tls::Config::new, libp2p::noise::Config::new),
+            libp2p::yamux::Config::default,
+        )
+        .unwrap()
+        .with_behaviour(|_| MyBehaviour {
+            kademlia,
+            mdns,
+            request_response: MyBehaviour::create_req_res(),
+        })
+        .unwrap()
+        .build()
 }
