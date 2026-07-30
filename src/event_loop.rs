@@ -144,7 +144,7 @@ impl EventLoop {
                                         _ => {
                                             match self.pending_requests.remove(&request_id) {
                                                 Some(sender) => {
-                                                    sender.send(Ok(response)).unwrap();
+                                                    let _ = sender.send(Ok(response));
                                                 },
                                                 None => {
                                                     eprintln!("Request not found: {}" , request_id);
@@ -297,7 +297,7 @@ impl EventLoop {
                                 self.send_response(response, channel).await.unwrap();
                             }
                             DhtEvent::GetStorageNodes { sender } => {
-                                sender.send(self.get_storage_nodes().await).unwrap()
+                                let _ = sender.send(self.get_storage_nodes().await);
                             }
                         }
                     }
@@ -321,10 +321,16 @@ impl EventLoop {
 
         self.pending_requests.insert(request_id, res_sender);
         tokio::spawn(async move {
-            let res = receiver.await.unwrap();
-            match res {
-                Ok(r) => sender.send(Ok(r)).unwrap(),
-                Err(_r) => sender.send(Err("some error".to_owned())).unwrap(),
+            match receiver.await {
+                Ok(Ok(r)) => {
+                    let _ = sender.send(Ok(r));
+                }
+                Ok(Err(_r)) => {
+                    let _ = sender.send(Err("some error".to_owned()));
+                }
+                Err(err) => {
+                    let _ = sender.send(Err(format!("response channel closed: {}", err)));
+                }
             };
         });
 
