@@ -109,6 +109,7 @@ libp2p = { version = "0.54.1", features = [
   "webtransport-websys",
   "yamux",
 ] }
+libp2p-swarm = "0.45.1"
 rand = "0.8.5"
 thiserror = "1.0.69"
 time = "0.3"

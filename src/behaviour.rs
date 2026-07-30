@@ -1,7 +1,7 @@
 use crate::constants::MAX_REQUEST_SIZE;
 use async_std::io;
 use async_trait::async_trait;
-use futures::prelude::*;
+use ::futures::prelude::*;
 use libp2p::kad::{store::MemoryStore, Behaviour as Kademlia, Event as KademliaEvent};
 use libp2p::request_response::{
     Behaviour as RequestResponse, Codec as RequestResponseCodec, Config as RequestResponseConfig,
@@ -9,8 +9,7 @@ use libp2p::request_response::{
 };
 use libp2p::{
     mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
-    swarm::{derive_prelude::*, StreamProtocol},
-    NetworkBehaviour,
+    swarm::{derive_prelude::*, NetworkBehaviour, StreamProtocol},
 };
 use serde::{Deserialize, Serialize};
 use std::{iter, str};
