@@ -165,8 +165,6 @@ impl EventLoop {
                                 KademliaEvent::OutboundQueryProgressed { id, result, .. } => {
                                     if let Some(sender) = self.pending_kademlia_queries.remove(&id) {
                                         sender.send(Ok(result)).unwrap();
-                                    } else {
-                                        eprintln!("Kademlia query sender not found for id: {:?}" , id);
                                     }
                                 }
                                 KademliaEvent::RoutingUpdated { peer, is_new_peer, addresses: _, old_peer: _, bucket_range: _ } => {
