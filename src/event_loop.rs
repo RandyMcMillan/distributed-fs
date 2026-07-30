@@ -368,7 +368,7 @@ impl EventLoop {
         }
 
         if storage_nodes.is_empty() {
-            log::info!("No confirmed storage nodes yet; falling back to discovered peers");
+            info!("No confirmed storage nodes yet; falling back to discovered peers");
             return Ok(discovered_nodes.into_iter().take(3).collect());
         }
 
