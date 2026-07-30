@@ -1,3 +1,4 @@
+use clap::Parser;
 use ::futures::StreamExt;
 use libp2p::{
     floodsub::{Floodsub, FloodsubEvent, Topic},
@@ -22,6 +23,13 @@ enum OutEvent {
     Mdns(MdnsEvent),
 }
 
+#[derive(Debug, Parser)]
+#[command(name = "chat_p2p", version, about = "Peer-to-peer chat demo")]
+struct Cli {
+    #[arg(long, value_name = "MULTIADDR")]
+    dial: Option<Multiaddr>,
+}
+
 impl From<FloodsubEvent> for OutEvent {
     fn from(event: FloodsubEvent) -> Self {
         Self::Floodsub(event)
@@ -36,6 +44,7 @@ impl From<MdnsEvent> for OutEvent {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::parse();
     let topic = Topic::new("chat");
     let subscription_topic = topic.clone();
 
@@ -58,9 +67,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap()
         .build();
 
-    if let Some(to_dial) = std::env::args().nth(1) {
-        let addr: Multiaddr = to_dial.parse()?;
-        swarm.dial(addr)?;
+    if let Some(to_dial) = cli.dial {
+        swarm.dial(to_dial)?;
     }
 
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;

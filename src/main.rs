@@ -1,16 +1,34 @@
+use clap::{Parser, Subcommand};
 use secp256k1::hashes::sha256;
 use secp256k1::rand::rngs::OsRng;
 use secp256k1::{Message, Secp256k1, SecretKey, Signature};
-use std::env;
 use std::error::Error;
 
 use gnostr_p2p::node::Node;
 
+#[derive(Debug, Parser)]
+#[command(name = "gnostr-p2p", version, about = "Distributed storage node")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    #[arg(long, default_value = "storage", value_parser = ["api", "storage"])]
+    role: String,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    addr: String,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    GenKeypair,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
+    let cli = Cli::parse();
 
-    if args.len() > 1 && &args[1] == "gen-keypair" {
+    if matches!(cli.command, Some(Command::GenKeypair)) {
         let secp = Secp256k1::new();
         let mut rng = OsRng::new().unwrap();
         let (secret_key, public_key) = secp.generate_keypair(&mut rng);
@@ -25,19 +43,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    if args.len() < 3 {
-        //println!("Provide type and server_addr 'tcp_chat [api | storage] 127.0.0.1'");
-        //return Ok(());
-    }
-
-    let (node_type, addr) = if args.len() <= 3 {
-        ("storage".to_string(), "127.0.0.1".to_string())
-    } else {
-        (args[1].clone(), args[2].clone())
-    };
-
-    let swarm_addr = format!("/ip4/{}/tcp/0", addr);
-    let api_addr = format!("{}:50051", addr);
+    let swarm_addr = format!("/ip4/{}/tcp/0", cli.addr);
+    let api_addr = format!("{}:50051", cli.addr);
 
     let bootstrap_nodes: Vec<libp2p::Multiaddr> = vec![
         // Example bootstrap nodes (replace with actual public nodes for a real deployment)
@@ -45,12 +52,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ];
 
     let node = {
-        if node_type == "api" {
+        if cli.role == "api" {
             Node::new_api_node(&swarm_addr, &api_addr, bootstrap_nodes).await.unwrap()
-        } else if node_type == "storage" {
-            Node::new_storage_node(&swarm_addr, bootstrap_nodes).await.unwrap()
         } else {
-            panic!("node_type should be 'storage' or 'api'")
+            Node::new_storage_node(&swarm_addr, bootstrap_nodes).await.unwrap()
         }
     };
 

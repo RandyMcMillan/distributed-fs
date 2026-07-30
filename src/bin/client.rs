@@ -1,3 +1,4 @@
+use clap::Parser;
 use libp2p::kad::RecordKey as Key;
 use secp256k1::hashes::{sha256, Hash};
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
@@ -24,15 +25,19 @@ const DEFAULT_PRIVATE_KEY: &str = "4b3bee129b6f2a9418d1a617803913e3fee922643c628
 const CACHE_DIR: &str = "./cache";
 const DOWNLOAD_DIR: &str = "./download";
 
+#[derive(Debug, Parser)]
+#[command(name = "client", version, about = "Peer-to-peer storage client")]
+struct Cli {
+    #[arg(long, value_name = "PATH")]
+    upload: Option<PathBuf>,
+
+    #[arg(long, value_names = ["LOCATION", "SIG"], num_args = 2)]
+    download: Option<Vec<String>>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).map(String::as_str).unwrap_or("help");
-
-    if command == "help" {
-        eprintln!("Usage: cargo run --bin client -- <upload PATH|download LOCATION SIG>");
-        return Ok(());
-    }
+    let cli = Cli::parse();
 
     let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
     let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
@@ -54,24 +59,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let secret_key = SecretKey::from_str(DEFAULT_PRIVATE_KEY)?;
     let public_key = PublicKey::from_str(DEFAULT_PUBLIC_KEY)?;
 
-    match command {
-        "upload" => {
-            let path = args.get(2).ok_or("missing upload path")?;
+    match (cli.upload, cli.download) {
+        (Some(path), None) => {
             let (location, signature) =
-                upload_directory(Path::new(path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
+                upload_directory(Path::new(&path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
             println!("UPLOAD_OK location={} signature={}", location, signature);
             if std::env::var_os("DEMO_EXIT_AFTER_UPLOAD").is_none() {
                 println!("Upload submitted; keeping peer alive for inbound chunk fetches.");
                 tokio::signal::ctrl_c().await?;
             }
         }
-        "download" => {
-            let location = args.get(2).ok_or("missing location")?.clone();
-            let sig = args.get(3).ok_or("missing signature")?.clone();
+        (None, Some(download)) => {
+            let mut values = download.into_iter();
+            let location = values.next().ok_or("missing location")?;
+            let sig = values.next().ok_or("missing signature")?;
             download_entry(location, sig, &dht_event_sender, &public_key).await?;
         }
-        _ => {
-            eprintln!("Unknown command: {}", command);
+        (None, None) => {
+            return Err("use --upload <PATH> or --download <LOCATION> <SIG>".into());
+        }
+        (Some(_), Some(_)) => {
+            return Err("--upload and --download are mutually exclusive".into());
         }
     }
 
