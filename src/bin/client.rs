@@ -500,6 +500,23 @@ mod tests {
     }
 
     #[test]
+    fn build_metadata_accepts_dot_for_current_directory() {
+        let root = unique_temp_dir("distributed_fs_client_dot");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("nested/file.txt"), b"dot").unwrap();
+
+        let prev_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+
+        let meta = build_metadata(Path::new(".")).unwrap();
+        assert_eq!(meta.children.len(), 1);
+        assert_eq!(meta.children[0].name, "nested/file.txt");
+
+        std::env::set_current_dir(prev_dir).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn signing_is_stable_for_same_input() {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_str(DEFAULT_PRIVATE_KEY).unwrap();
