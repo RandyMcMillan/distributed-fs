@@ -30,7 +30,7 @@ const DOWNLOAD_DIR: &str = "./download";
     name = "client",
     version,
     about = "Peer-to-peer storage client",
-    long_about = "Upload a single file or an entire directory tree into the decentralized network, or download content back from peers.\n\nUse --path to share a local file or directory recursively, or --download to fetch content by location and signature."
+    long_about = "Upload a single file or an entire directory tree into the decentralized network, or download content back from peers.\n\nUse --path to share a local file or directory recursively, --download to fetch content by location and signature, and --logging to control output verbosity."
 )]
 struct Cli {
     #[arg(
@@ -50,11 +50,20 @@ struct Cli {
         long_help = "Download an entry by its location and signature. LOCATION is the path inside the entry, and SIG is the entry signature used as the record key."
     )]
     download: Option<Vec<String>>,
+
+    #[arg(
+        long,
+        default_value = "info",
+        value_parser = ["warn", "info", "debug", "trace"],
+        help = "Set the log verbosity level"
+    )]
+    logging: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
+    gnostr_p2p::init_logging(&cli.logging);
 
     let (requests_sender, requests_receiver) = mpsc::channel::<ReqResEvent>(32);
     let (dht_event_sender, dht_event_receiver) = mpsc::channel::<DhtEvent>(32);
