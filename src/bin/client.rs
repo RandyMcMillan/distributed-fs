@@ -53,8 +53,10 @@ struct Cli {
 
     #[arg(
         long,
-        default_value = "info",
-        value_parser = ["warn", "info", "debug", "trace"],
+        default_value = "off",
+        default_missing_value = "off",
+        num_args = 0..=1,
+        value_parser = ["off", "warn", "info", "debug", "trace"],
         help = "Set the log verbosity level"
     )]
     logging: String,

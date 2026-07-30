@@ -11,6 +11,10 @@ pub mod node;
 pub mod swarm;
 
 pub fn init_logging(level: &str) {
+    if level.is_empty() || level == "off" {
+        return;
+    }
+
     let filter = tracing_subscriber::EnvFilter::try_new(level)
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
