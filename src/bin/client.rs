@@ -92,6 +92,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let (location, signature) =
                 upload_directory(Path::new(&path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
             println!("UPLOAD_OK location={} signature={}", location, signature);
+            println!(
+                "Download it with: cargo run --bin client -- --download {} {} --logging info",
+                location, signature
+            );
             if std::env::var_os("DEMO_EXIT_AFTER_UPLOAD").is_none() {
                 println!("Upload submitted; keeping peer alive for inbound chunk fetches.");
                 tokio::signal::ctrl_c().await?;
