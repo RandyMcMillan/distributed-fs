@@ -113,7 +113,7 @@ rand = "0.8.5"
 thiserror = "1.0.69"
 time = "0.3"
 tokio = { version = "1.46.1", features = ["full"] }
-tonic = "0.6.2" 
+tonic = "0.12.3" 
 # tokio-tungstenite = { workspace = true }
 tor-cell = { version = "^0.21", optional = true }
 tor-hsservice = { version = "^0.21", optional = true }

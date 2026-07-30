@@ -1,5 +1,5 @@
 use futures::stream::StreamExt;
-use libp2p::kad::record::Key;
+use libp2p::kad::RecordKey as Key;
 use libp2p::request_response::ResponseChannel;
 use libp2p::PeerId;
 use std::io::{BufReader, Read};

@@ -1,4 +1,4 @@
-use libp2p::kad::record::Key;
+use libp2p::kad::RecordKey as Key;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;

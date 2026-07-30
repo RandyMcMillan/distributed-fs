@@ -2,15 +2,14 @@ use crate::constants::MAX_REQUEST_SIZE;
 use async_std::io;
 use async_trait::async_trait;
 use futures::prelude::*;
-use libp2p::kad::record::store::MemoryStore;
-use libp2p::kad::{Kademlia, KademliaEvent};
+use libp2p::kad::{store::MemoryStore, Behaviour as Kademlia, Event as KademliaEvent};
 use libp2p::request_response::{
     Behaviour as RequestResponse, Codec as RequestResponseCodec, Config as RequestResponseConfig,
-    Event as RequestResponseEvent, Message as RequestResponseMessage, ProtocolSupport,
+    Event as RequestResponseEvent, ProtocolSupport,
 };
 use libp2p::{
-    mdns::{Mdns, MdnsEvent},
-    swarm::StreamProtocol,
+    mdns::{tokio::Behaviour as Mdns, Event as MdnsEvent},
+    swarm::{derive_prelude::*, StreamProtocol},
     NetworkBehaviour,
 };
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,7 @@ use std::{iter, str};
 use crate::node::NodeType;
 
 #[derive(NetworkBehaviour)]
-#[behaviour(out_event = "OutEvent", event_process = false)]
+#[behaviour(to_swarm = "OutEvent", prelude = "libp2p_swarm::derive_prelude")]
 pub struct MyBehaviour {
     pub kademlia: Kademlia<MemoryStore>,
     pub mdns: Mdns,

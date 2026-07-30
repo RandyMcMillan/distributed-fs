@@ -1,11 +1,13 @@
 use futures::StreamExt;
-use libp2p::kad::{record::Key, KademliaEvent, QueryResult, Record, GetProvidersOk, GetRecordOk, PutRecordOk, PutRecordError, GetProvidersError, GetRecordError};
-use libp2p::mdns::MdnsEvent;
 use libp2p::request_response::{
-    Event as RequestResponseEvent, Message as RequestResponseMessage, OutboundRequestId as RequestId,
-    ResponseChannel,
+    Event as RequestResponseEvent, Message as RequestResponseMessage,
+    OutboundRequestId as RequestId, ResponseChannel,
 };
 use libp2p::swarm::SwarmEvent;
+use libp2p::{
+    kad::{Event as KademliaEvent, QueryResult, Record, RecordKey as Key},
+    mdns::Event as MdnsEvent,
+};
 use libp2p::PeerId;
 use std::collections::HashMap;
 use std::error::Error;
@@ -67,7 +69,8 @@ pub struct EventLoop {
     ledgers: HashMap<PeerId, Ledger>,
     pending_requests:
         HashMap<RequestId, oneshot::Sender<Result<FileResponse, Box<dyn Error + Send>>>>,
-    pending_kademlia_queries: HashMap<libp2p::kad::QueryId, oneshot::Sender<Result<QueryResult, String>>>,
+    pending_kademlia_queries:
+        HashMap<libp2p::kad::QueryId, oneshot::Sender<Result<QueryResult, String>>>,
 }
 
 impl EventLoop {
@@ -147,7 +150,7 @@ impl EventLoop {
                                         }
                                     };
                                 }
-                                RequestResponseMessage::Request { request, channel, .. }  => {
+                                RequestResponseMessage::Request { request, channel, .. } => {
                                     self.requests_sender.send(
                                         ReqResEvent::InboundRequest { request, channel, peer }
                                     ).await.unwrap();
@@ -163,7 +166,7 @@ impl EventLoop {
                                         eprintln!("Kademlia query sender not found for id: {:?}" , id);
                                     }
                                 }
-                                KademliaEvent::RoutingUpdated { peer, is_new_peer, addresses, old_peer, bucket_range: _ } => {
+                                KademliaEvent::RoutingUpdated { peer, is_new_peer, addresses: _, old_peer: _, bucket_range: _ } => {
                                     if is_new_peer {
                                         println!("New peer in Kademlia routing table: {:?}" , peer);
                                         self.ledgers.insert(peer, Ledger {

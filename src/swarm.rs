@@ -1,16 +1,13 @@
-use async_std::task;
 use futures::StreamExt;
-use libp2p::kad::store::MemoryStore;
-use libp2p::kad::{record::Key, Kademlia, KademliaEvent, QueryResult, Quorum, Record};
-use libp2p::request_response::RequestId;
 use libp2p::{
     identity,
-    mdns::{Mdns, MdnsConfig},
+    kad::{store::MemoryStore, Behaviour as Kademlia, Config as KademliaConfig, RecordKey as Key},
+    request_response::OutboundRequestId,
     swarm::SwarmEvent,
-    Multiaddr, PeerId, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, Swarm, SwarmBuilder, StreamProtocol,
 };
 
-use crate::behaviour::{FileRequest, MyBehaviour, OutEvent};
+use crate::behaviour::{FileRequest, MyBehaviour};
 
 pub struct ManagedSwarm(pub Swarm<MyBehaviour>);
 
@@ -23,69 +20,51 @@ impl ManagedSwarm {
     }
 
     pub async fn bootstrap(&mut self) {
-        self.0.behaviour_mut().kademlia.bootstrap().unwrap();
+        let _ = self.0.behaviour_mut().kademlia.bootstrap();
     }
 
     pub fn get(&mut self, key: Key) -> libp2p::kad::QueryId {
-        let behaviour = self.0.behaviour_mut();
-        behaviour.kademlia.get_record(&key, Quorum::One)
+        self.0.behaviour_mut().kademlia.get_record(key)
     }
 
     pub fn put(&mut self, key: Key, value: Vec<u8>) -> libp2p::kad::QueryId {
-        let record = Record {
+        let record = libp2p::kad::Record {
             key,
             value,
             publisher: None,
             expires: None,
         };
 
-        let behaviour = self.0.behaviour_mut();
-        behaviour
+        self.0
+            .behaviour_mut()
             .kademlia
-            .put_record(record.clone(), Quorum::One)
+            .put_record(record)
             .expect("Failed to put record locally")
     }
 
     pub fn start_providing(&mut self, key: Key) -> libp2p::kad::QueryId {
-        let behaviour = self.0.behaviour_mut();
-        behaviour
+        self.0
+            .behaviour_mut()
             .kademlia
-            .start_providing(key.clone())
+            .start_providing(key)
             .expect("Failed to start providing key")
     }
 
     pub fn get_providers(&mut self, key: Key) -> libp2p::kad::QueryId {
-        let behaviour = self.0.behaviour_mut();
-        behaviour.kademlia.get_providers(key)
+        self.0.behaviour_mut().kademlia.get_providers(key)
     }
 
     pub async fn send_request(
         &mut self,
         peer: PeerId,
         request: FileRequest,
-    ) -> Result<RequestId, String> {
-        let behaviour = self.0.behaviour_mut();
-
-        let req_id = behaviour.request_response.send_request(&peer, request);
-
-        Ok(req_id)
+    ) -> Result<OutboundRequestId, String> {
+        Ok(self.0.behaviour_mut().request_response.send_request(&peer, request))
     }
 }
 
 async fn create_swarm(bootstrap_nodes: Vec<Multiaddr>) -> Swarm<MyBehaviour> {
-    let local_key = identity::Keypair::generate_ed25519();
-    let local_peer_id = PeerId::from(local_key.public());
-    println!("{:?}", local_peer_id);
-
-    let store = MemoryStore::new(local_peer_id);
-    let mut kademlia = Kademlia::new(local_peer_id, store);
-
-    for addr in bootstrap_nodes {
-        kademlia.add_address(&PeerId::from_public_key(&local_key.public()), addr);
-    }
-
-    let mdns = task::block_on(Mdns::new(MdnsConfig::default())).unwrap();
-    SwarmBuilder::with_existing_identity(local_key)
+    SwarmBuilder::with_new_identity()
         .with_tokio()
         .with_tcp(
             Default::default(),
@@ -93,10 +72,30 @@ async fn create_swarm(bootstrap_nodes: Vec<Multiaddr>) -> Swarm<MyBehaviour> {
             libp2p::yamux::Config::default,
         )
         .unwrap()
-        .with_behaviour(|_| MyBehaviour {
-            kademlia,
-            mdns,
-            request_response: MyBehaviour::create_req_res(),
+        .with_behaviour(move |key| {
+            let local_peer_id = PeerId::from(key.public());
+            let store = MemoryStore::new(local_peer_id);
+            let mut kademlia = Kademlia::with_config(
+                local_peer_id,
+                store,
+                KademliaConfig::new(StreamProtocol::new("/ipfs/kad/1.0.0")),
+            );
+
+            for addr in bootstrap_nodes {
+                kademlia.add_address(&local_peer_id, addr);
+            }
+
+            let mdns = libp2p::mdns::tokio::Behaviour::new(
+                libp2p::mdns::Config::default(),
+                local_peer_id,
+            )
+            .unwrap();
+
+            MyBehaviour {
+                kademlia,
+                mdns,
+                request_response: MyBehaviour::create_req_res(),
+            }
         })
         .unwrap()
         .build()

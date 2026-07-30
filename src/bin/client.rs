@@ -1,4 +1,4 @@
-use libp2p::kad::record::Key;
+use libp2p::kad::RecordKey as Key;
 use secp256k1::hashes::{sha256, Hash};
 use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
 use std::error::Error;
