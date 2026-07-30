@@ -10,6 +10,8 @@ cargo build
 
 ## Run
 
+The Rust binaries are the supported path; `./client` is legacy TypeScript/gRPC code kept for reference only.
+
 ### Node entrypoint
 
 The main binary is `gnostr-p2p` and accepts a node role plus host/IP:

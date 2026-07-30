@@ -1,4 +1,6 @@
-The `client` directory contains a TypeScript-based gRPC client designed to interact with the `api_node` of the distributed storage network. This client facilitates uploading directories and downloading files to and from the decentralized storage.
+**Legacy:** the Rust client binary in `src/bin/client.rs` now replaces this TypeScript/gRPC client for supported workflows.
+
+The `client` directory contains the old TypeScript-based gRPC client that interacted with the `api_node`. It remains here for reference, but the supported upload/download path is now in Rust.
 
 ### Technologies Used
 
