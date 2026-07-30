@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEMO_DIR="$(mktemp -d "${TMPDIR:-$PWD}/distributed-fs-demo.XXXXXX")"
+mkdir -p $PWD/distributed-fs-demo
+DEMO_DIR="$PWD/distributed-fs-demo"
+echo $DEMO_DIR
 LOG_DIR="$DEMO_DIR/logs"
 DEMO_INPUT="$DEMO_DIR/sample"
 PIDS=()
