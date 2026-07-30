@@ -3,6 +3,14 @@ name = "tcp_chat"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "tcp-chat"
+path = "src/main.rs"
+
+[[bin]]
+name = "chat-p2p"
+path = "src/bin/chat_p2p.rs"
+
 [dependencies]
 libp2p = { version = "0.41", features = ["tcp-tokio", "request-response", "identify", "kad"] }
 libp2p-kad = "0.36"
