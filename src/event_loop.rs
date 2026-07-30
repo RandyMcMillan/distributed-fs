@@ -12,6 +12,7 @@ use libp2p::{
     mdns::Event as MdnsEvent,
 };
 use libp2p::PeerId;
+use log::{info, debug, trace, warn};
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -367,7 +368,7 @@ impl EventLoop {
         }
 
         if storage_nodes.is_empty() {
-            println!("No confirmed storage nodes yet; falling back to discovered peers");
+            log::info!("No confirmed storage nodes yet; falling back to discovered peers");
             return Ok(discovered_nodes.into_iter().take(3).collect());
         }
 

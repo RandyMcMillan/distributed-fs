@@ -2123,6 +2123,7 @@ dependencies = [
  "getrandom 0.1.16",
  "libp2p",
  "libp2p-swarm",
+ "log",
  "prost 0.13.5",
  "rand 0.8.7",
  "secp256k1",
