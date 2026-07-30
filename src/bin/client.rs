@@ -30,16 +30,17 @@ const DOWNLOAD_DIR: &str = "./download";
     name = "client",
     version,
     about = "Peer-to-peer storage client",
-    long_about = "Upload directories into the decentralized network or download content back from peers.\n\nUse --upload to send a local directory tree into the DHT-backed network, or --download to fetch content by location and signature."
+    long_about = "Upload a single file or an entire directory tree into the decentralized network, or download content back from peers.\n\nUse --path to share a local file or directory recursively, or --download to fetch content by location and signature."
 )]
 struct Cli {
     #[arg(
         long,
+        alias = "upload",
         value_name = "PATH",
-        help = "Upload a local directory or file tree from this path",
-        long_help = "Upload a local directory or file tree from this path. The client will build metadata, chunk large files, and push the entry into the network."
+        help = "Share a file or directory from this path",
+        long_help = "Share a file or directory from this path. If PATH is a file, the client shares that single file. If PATH is a directory, the client recursively shares all files under that tree and preserves relative paths in the metadata."
     )]
-    upload: Option<PathBuf>,
+    path: Option<PathBuf>,
 
     #[arg(
         long,
@@ -75,7 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let secret_key = SecretKey::from_str(DEFAULT_PRIVATE_KEY)?;
     let public_key = PublicKey::from_str(DEFAULT_PUBLIC_KEY)?;
 
-    match (cli.upload, cli.download) {
+    match (cli.path, cli.download) {
         (Some(path), None) => {
             let (location, signature) =
                 upload_directory(Path::new(&path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
@@ -92,10 +93,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             download_entry(location, sig, &dht_event_sender, &public_key).await?;
         }
         (None, None) => {
-            return Err("use --upload <PATH> or --download <LOCATION> <SIG>".into());
+            return Err("use --path <PATH> or --download <LOCATION> <SIG>".into());
         }
         (Some(_), Some(_)) => {
-            return Err("--upload and --download are mutually exclusive".into());
+            return Err("--path and --download are mutually exclusive".into());
         }
     }
 
@@ -352,11 +353,19 @@ fn build_metadata(path: &Path) -> Result<EntryMetaData, Box<dyn Error>> {
         .to_string_lossy()
         .to_string();
     let mut children = Vec::new();
-    collect_children(path, path, &mut children)?;
+    if path.is_file() {
+        children.push(build_file_child(path, path)?);
+    } else {
+        collect_children(path, path, &mut children)?;
+    }
     Ok(EntryMetaData { children, name })
 }
 
-fn collect_children(root: &Path, current: &Path, children: &mut Vec<Children>) -> Result<(), Box<dyn Error>> {
+fn collect_children(
+    root: &Path,
+    current: &Path,
+    children: &mut Vec<Children>,
+) -> Result<(), Box<dyn Error>> {
     for entry in fs::read_dir(current)? {
         let entry = entry?;
         let entry_path = entry.path();
@@ -365,37 +374,49 @@ fn collect_children(root: &Path, current: &Path, children: &mut Vec<Children>) -
             continue;
         }
 
-        let data = fs::read(&entry_path)?;
-        let relative = entry_path.strip_prefix(root)?.to_string_lossy().replace('\\', "/");
-        let mut child = Children {
-            name: relative,
-            r#type: "file".to_string(),
-            cids: Vec::new(),
-            size: data.len() as i32,
-            data: None,
-        };
-
-        if data.len() <= MAX_DHT_STORED_CHUNKS as usize {
-            child.data = Some(data);
-        } else {
-            for (index, chunk) in data.chunks(MAX_CHUNK_SIZE as usize).enumerate() {
-                let cid = sha256::Hash::hash(chunk).to_string();
-                child.cids.push(cid.clone());
-                let cache_path = Path::new(CACHE_DIR).join(&cid);
-                if !cache_path.exists() {
-                    fs::create_dir_all(CACHE_DIR)?;
-                    fs::write(cache_path, chunk)?;
-                }
-                if index == 0 && child.data.is_some() {
-                    child.data = None;
-                }
-            }
-        }
-
-        children.push(child);
+        children.push(build_file_child(root, &entry_path)?);
     }
 
     Ok(())
+}
+
+fn build_file_child(root: &Path, entry_path: &Path) -> Result<Children, Box<dyn Error>> {
+    let data = fs::read(entry_path)?;
+    let relative = if root.is_file() {
+        entry_path
+            .file_name()
+            .ok_or("path must point to a file or directory")?
+            .to_string_lossy()
+            .replace('\\', "/")
+    } else {
+        entry_path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let mut child = Children {
+        name: relative,
+        r#type: "file".to_string(),
+        cids: Vec::new(),
+        size: data.len() as i32,
+        data: None,
+    };
+
+    if data.len() <= MAX_DHT_STORED_CHUNKS as usize {
+        child.data = Some(data);
+    } else {
+        for chunk in data.chunks(MAX_CHUNK_SIZE as usize) {
+            let cid = sha256::Hash::hash(chunk).to_string();
+            child.cids.push(cid.clone());
+            let cache_path = Path::new(CACHE_DIR).join(&cid);
+            if !cache_path.exists() {
+                fs::create_dir_all(CACHE_DIR)?;
+                fs::write(cache_path, chunk)?;
+            }
+        }
+    }
+
+    Ok(child)
 }
 
 #[cfg(test)]
@@ -428,6 +449,39 @@ mod tests {
         let large = meta.children.iter().find(|child| child.name == "large.bin").unwrap();
         assert!(large.data.is_none());
         assert!(!large.cids.is_empty());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn build_metadata_accepts_single_file_paths() {
+        let root = unique_temp_dir("distributed_fs_client_file");
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("single.txt");
+        fs::write(&file, b"file payload").unwrap();
+
+        let meta = build_metadata(&file).unwrap();
+        assert_eq!(meta.name, "single.txt");
+        assert_eq!(meta.children.len(), 1);
+        assert_eq!(meta.children[0].name, "single.txt");
+        assert_eq!(meta.children[0].data.as_deref(), Some(b"file payload".as_slice()));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn build_metadata_recurses_directories() {
+        let root = unique_temp_dir("distributed_fs_client_dir");
+        fs::create_dir_all(root.join("nested/deeper")).unwrap();
+        fs::write(root.join("root.txt"), b"root").unwrap();
+        fs::write(root.join("nested/child.txt"), b"child").unwrap();
+        fs::write(root.join("nested/deeper/grandchild.txt"), b"grandchild").unwrap();
+
+        let meta = build_metadata(&root).unwrap();
+        assert_eq!(meta.children.len(), 3);
+        assert!(meta.children.iter().any(|child| child.name == "root.txt"));
+        assert!(meta.children.iter().any(|child| child.name == "nested/child.txt"));
+        assert!(meta.children.iter().any(|child| child.name == "nested/deeper/grandchild.txt"));
 
         fs::remove_dir_all(&root).unwrap();
     }
