@@ -1,55 +1,121 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-## # ==========================================
-## # 1. DETECT BASH VERSION HERE
-## # ==========================================
-## # macOS default bash is often old (v3.2). Check for Bash 4.0+
-## if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-##     echo "❌ Error: This script requires Bash 4.0 or higher." >&2
-##     echo "💡 Current version: ${BASH_VERSION}" >&2
-##     echo "💡 Fix for macOS: Run 'brew install bash' and update your path." >&2
-##     brew install bash && exit 0
-## fi
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEMO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/distributed-fs-demo.XXXXXX")"
+LOG_DIR="$DEMO_DIR/logs"
+DEMO_INPUT="$DEMO_DIR/sample"
+PIDS=()
+LAST_LOG_FILE=""
 
-echo "✅ Bash version ${BASH_VERSION} verified."
-
-# ==========================================
-# 2. IMPLEMENT FULL STACK DEMO
-# ==========================================
-echo "🚀 Starting Distributed File System (IPFS) Full-Stack Demo..."
-
-# Check if local IPFS/Kubo daemon is alive
-if ! ipfs id >/dev/null 2>&1; then
-    echo "⚠️  IPFS daemon is not running locally."
-    echo "🔄 Attempting to spin up IPFS daemon..."
-    ipfs daemon > ipfs_daemon.log 2>&1 &
-
-    # Wait up to 10 seconds for the API to become responsive
-    for i in {1..10}; do
-        if ipfs id >/dev/null 2>&1; then
-            echo "✅ IPFS daemon successfully started."
-            break
+cleanup() {
+    local pid
+    for pid in "${PIDS[@]:-}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
         fi
-        if [ "$i" -eq 10 ]; then
-            echo "❌ Error: Could not connect to IPFS daemon. Run 'ipfs daemon' in another terminal." >&2
-            exit 1
-        fi
-        sleep 1
     done
+
+    if [[ "${KEEP_DEMO_ARTIFACTS:-0}" != "1" ]]; then
+        rm -rf "$DEMO_DIR"
+    else
+        echo "Demo artifacts kept at: $DEMO_DIR"
+    fi
+}
+
+trap cleanup EXIT
+
+wait_for_log() {
+    local log_file="$1"
+    local needle="$2"
+    local timeout="${3:-90}"
+    local elapsed=0
+
+    while [[ "$elapsed" -lt "$timeout" ]]; do
+        if grep -q "$needle" "$log_file" 2>/dev/null; then
+            return 0
+        fi
+
+        for pid in "${PIDS[@]:-}"; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+                echo "A demo process exited early."
+                echo "--- $log_file ---"
+                cat "$log_file" 2>/dev/null || true
+                exit 1
+            fi
+        done
+
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    echo "Timed out waiting for: $needle"
+    echo "--- $log_file ---"
+    cat "$log_file" 2>/dev/null || true
+    exit 1
+}
+
+start_node() {
+    local name="$1"
+    shift
+    local log_file="$LOG_DIR/$name.log"
+    mkdir -p "$LOG_DIR"
+    : > "$log_file"
+
+    (
+        cd "$ROOT_DIR"
+        "$@"
+    ) >"$log_file" 2>&1 &
+
+    PIDS+=("$!")
+    LAST_LOG_FILE="$log_file"
+}
+
+echo "Building workspace..."
+(
+    cd "$ROOT_DIR"
+    cargo build --quiet
+)
+
+mkdir -p "$DEMO_INPUT/nested"
+cat > "$DEMO_INPUT/README.txt" <<'EOF'
+Distributed FS demo payload
+EOF
+cat > "$DEMO_INPUT/nested/data.txt" <<'EOF'
+hello from the decentralized demo
+EOF
+
+echo "Starting demo nodes..."
+start_node api cargo run --quiet --bin gnostr-p2p -- api 127.0.0.1
+API_LOG="$LAST_LOG_FILE"
+start_node storage-a cargo run --quiet --bin gnostr-p2p -- storage 127.0.0.1
+STORAGE_A_LOG="$LAST_LOG_FILE"
+start_node storage-b cargo run --quiet --bin gnostr-p2p -- storage 127.0.0.1
+STORAGE_B_LOG="$LAST_LOG_FILE"
+
+wait_for_log "$API_LOG" "gRPC server listening on"
+wait_for_log "$STORAGE_A_LOG" "Listening on"
+wait_for_log "$STORAGE_B_LOG" "Listening on"
+
+echo "Uploading sample content..."
+UPLOAD_OUTPUT="$(
+    cd "$ROOT_DIR"
+    DEMO_EXIT_AFTER_UPLOAD=1 cargo run --quiet --bin client -- upload "$DEMO_INPUT"
+)"
+echo "$UPLOAD_OUTPUT"
+
+LOCATION="$(printf '%s\n' "$UPLOAD_OUTPUT" | sed -n 's/^UPLOAD_OK location=\([^ ]*\) signature=.*$/\1/p' | tail -n 1)"
+SIGNATURE="$(printf '%s\n' "$UPLOAD_OUTPUT" | sed -n 's/^UPLOAD_OK location=[^ ]* signature=\(.*\)$/\1/p' | tail -n 1)"
+
+if [[ -z "$LOCATION" || -z "$SIGNATURE" ]]; then
+    echo "Failed to parse upload output." >&2
+    exit 1
 fi
 
-# Create a sample text file to represent a distributed asset
-mkdir -p build
-echo "Distributed File System Demo - Build Asset $(date)" > build/index.html
+echo "Downloading sample content..."
+(
+    cd "$ROOT_DIR"
+    cargo run --quiet --bin client -- download "$LOCATION" "$SIGNATURE"
+)
 
-# Add the file/directory to IPFS
-echo "📦 Staging assets to IPFS..."
-IPFS_ADD_OUTPUT=$(ipfs add -r build/index.html --cid-version=1)
-CID=$(echo "$IPFS_ADD_OUTPUT" | awk '{print $2}' | tail -n 1)
-
-echo "🌍 Asset successfully distributed!"
-echo "🔗 IPFS Content Identifier (CID): $CID"
-echo "🌐 Local Gateway URL: http://localhost:8080/ipfs/$CID"
-
-# Optional: Add code here to spin up your UI/Frontend framework pointing to $CID
-
+echo "Demo completed successfully."

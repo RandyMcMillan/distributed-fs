@@ -57,9 +57,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match command {
         "upload" => {
             let path = args.get(2).ok_or("missing upload path")?;
-            upload_directory(Path::new(path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
-            println!("Upload submitted; keeping peer alive for inbound chunk fetches.");
-            tokio::signal::ctrl_c().await?;
+            let (location, signature) =
+                upload_directory(Path::new(path), &dht_event_sender, &secp, &secret_key, &public_key).await?;
+            println!("UPLOAD_OK location={} signature={}", location, signature);
+            if std::env::var_os("DEMO_EXIT_AFTER_UPLOAD").is_none() {
+                println!("Upload submitted; keeping peer alive for inbound chunk fetches.");
+                tokio::signal::ctrl_c().await?;
+            }
         }
         "download" => {
             let location = args.get(2).ok_or("missing location")?.clone();
@@ -143,7 +147,7 @@ async fn upload_directory(
     secp: &Secp256k1<secp256k1::All>,
     secret_key: &SecretKey,
     public_key: &PublicKey,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(String, String), Box<dyn Error>> {
     fs::create_dir_all(CACHE_DIR)?;
     let meta = build_metadata(path)?;
     let signature = sign_entry(secp, secret_key, public_key, &meta.name);
@@ -190,7 +194,7 @@ async fn upload_directory(
         let _ = receiver.await?;
     }
 
-    Ok(())
+    Ok((meta.name, signature))
 }
 
 async fn download_entry(
