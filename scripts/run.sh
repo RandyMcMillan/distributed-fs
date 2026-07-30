@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEMO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/distributed-fs-demo.XXXXXX")"
+DEMO_DIR="$(mktemp -d "${TMPDIR:-$PWD}/distributed-fs-demo.XXXXXX")"
 LOG_DIR="$DEMO_DIR/logs"
 DEMO_INPUT="$DEMO_DIR/sample"
 PIDS=()
@@ -23,11 +23,11 @@ cleanup() {
         fi
     done
 
-    if [[ "${KEEP_DEMO_ARTIFACTS:-0}" != "1" ]]; then
-        rm -rf "$DEMO_DIR"
-    else
-        echo "Demo artifacts kept at: $DEMO_DIR"
-    fi
+    #if [[ "${KEEP_DEMO_ARTIFACTS:-0}" != "1" ]]; then
+    #    rm -rf "$DEMO_DIR"
+    #else
+    #    echo "Demo artifacts kept at: $DEMO_DIR"
+    #fi
 }
 
 trap cleanup EXIT
