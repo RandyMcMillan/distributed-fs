@@ -187,3 +187,32 @@ pub fn split_get_file_request(mut cids: Vec<(String, i32)>) -> Vec<Vec<String>> 
 
     reqs
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_location_key_and_signature() {
+        let (key, location, signature) =
+            get_location_key("root/e_deadbeef/folder/file".to_string()).unwrap();
+
+        assert_eq!(key, Key::new(&b"e_deadbeef".to_vec()));
+        assert_eq!(location, "folder/file");
+        assert_eq!(signature, "deadbeef");
+    }
+
+    #[test]
+    fn splits_requests_by_size() {
+        let batches = split_get_file_request(vec![
+            ("cid-a".to_string(), 400_000),
+            ("cid-b".to_string(), 100_000),
+            ("cid-c".to_string(), 200_000),
+        ]);
+
+        assert_eq!(batches, vec![
+            vec!["cid-b".to_string(), "cid-c".to_string()],
+            vec!["cid-a".to_string()],
+        ]);
+    }
+}

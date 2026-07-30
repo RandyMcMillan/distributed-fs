@@ -4,19 +4,7 @@ use secp256k1::{Message, Secp256k1, SecretKey, Signature};
 use std::env;
 use std::error::Error;
 
-mod service {
-    tonic::include_proto!("api");
-}
-
-mod api;
-mod behaviour;
-mod constants;
-mod entry;
-mod event_loop;
-mod node;
-mod swarm;
-
-use node::Node;
+use tcp_chat::node::Node;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -42,15 +30,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         //return Ok(());
     }
 
-    let node_type: String;
-    let mut addr: &str = "127.0.0.1";
-    if args.len() <= 3 {
-        node_type = "storage".to_string();
-        addr = "127.0.0.1";
+    let (node_type, addr) = if args.len() <= 3 {
+        ("storage".to_string(), "127.0.0.1".to_string())
     } else {
-        node_type = args[1].clone();
-        addr = &args[2];
-    }
+        (args[1].clone(), args[2].clone())
+    };
 
     let swarm_addr = format!("/ip4/{}/tcp/0", addr);
     let api_addr = format!("{}:50051", addr);
