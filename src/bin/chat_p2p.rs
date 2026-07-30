@@ -24,9 +24,18 @@ enum OutEvent {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "chat_p2p", version, about = "Peer-to-peer chat demo")]
+#[command(
+    name = "chat_p2p",
+    version,
+    about = "Peer-to-peer chat demo",
+    long_about = "Start a small libp2p chat node that discovers peers over mDNS and broadcasts messages with floodsub."
+)]
 struct Cli {
-    #[arg(long, value_name = "MULTIADDR")]
+    #[arg(
+        long,
+        value_name = "MULTIADDR",
+        help = "Dial an existing peer at this multiaddr"
+    )]
     dial: Option<Multiaddr>,
 }
 

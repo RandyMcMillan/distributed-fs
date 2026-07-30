@@ -26,12 +26,26 @@ const CACHE_DIR: &str = "./cache";
 const DOWNLOAD_DIR: &str = "./download";
 
 #[derive(Debug, Parser)]
-#[command(name = "client", version, about = "Peer-to-peer storage client")]
+#[command(
+    name = "client",
+    version,
+    about = "Peer-to-peer storage client",
+    long_about = "Upload directories into the decentralized network or download content back from peers."
+)]
 struct Cli {
-    #[arg(long, value_name = "PATH")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Upload a local directory or file tree from this path"
+    )]
     upload: Option<PathBuf>,
 
-    #[arg(long, value_names = ["LOCATION", "SIG"], num_args = 2)]
+    #[arg(
+        long,
+        value_names = ["LOCATION", "SIG"],
+        num_args = 2,
+        help = "Download an entry by its location and signature"
+    )]
     download: Option<Vec<String>>,
 }
 

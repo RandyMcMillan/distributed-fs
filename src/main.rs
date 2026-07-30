@@ -7,20 +7,35 @@ use std::error::Error;
 use gnostr_p2p::node::Node;
 
 #[derive(Debug, Parser)]
-#[command(name = "gnostr-p2p", version, about = "Distributed storage node")]
+#[command(
+    name = "gnostr-p2p",
+    version,
+    about = "Distributed storage node",
+    long_about = "Start an API node, storage node, or generate a signing keypair for the decentralized Rust network."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
-    #[arg(long, default_value = "storage", value_parser = ["api", "storage"])]
+    #[arg(
+        long,
+        default_value = "storage",
+        value_parser = ["api", "storage"],
+        help = "Select which node role to run"
+    )]
     role: String,
 
-    #[arg(long, default_value = "127.0.0.1")]
+    #[arg(
+        long,
+        default_value = "127.0.0.1",
+        help = "Bind the node and gRPC listener to this host or IP"
+    )]
     addr: String,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(about = "Generate an Ed25519 keypair for signing and identity")]
     GenKeypair,
 }
 
