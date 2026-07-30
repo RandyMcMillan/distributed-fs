@@ -15,15 +15,15 @@ cargo build
 The main binary is `gnostr-p2p` and accepts a node role plus host/IP:
 
 ```bash
-cargo run --bin gnostr-p2p -- api 127.0.0.1
-cargo run --bin gnostr-p2p -- storage 127.0.0.1
+cargo run --bin gnostr-p2p -- --role api --addr 127.0.0.1
+cargo run --bin gnostr-p2p -- --role storage --addr 127.0.0.1
 ```
 
 ### P2P client
 
 ```bash
-cargo run --bin client -- upload ./my_files
-cargo run --bin client -- download <location> <signature>
+cargo run --bin client -- --upload ./my_files
+cargo run --bin client -- --download <location> <signature>
 ```
 
 ### Chat demo

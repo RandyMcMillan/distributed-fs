@@ -100,11 +100,11 @@ hello from the decentralized demo
 EOF
 
 echo "Starting demo nodes..."
-start_node api cargo run --quiet --bin gnostr-p2p -- api 127.0.0.1
+start_node api cargo run --quiet --bin gnostr-p2p -- --role api --addr 127.0.0.1
 API_LOG="$LAST_LOG_FILE"
-start_node storage-a cargo run --quiet --bin gnostr-p2p -- storage 127.0.0.1
+start_node storage-a cargo run --quiet --bin gnostr-p2p -- --role storage --addr 127.0.0.1
 STORAGE_A_LOG="$LAST_LOG_FILE"
-start_node storage-b cargo run --quiet --bin gnostr-p2p -- storage 127.0.0.1
+start_node storage-b cargo run --quiet --bin gnostr-p2p -- --role storage --addr 127.0.0.1
 STORAGE_B_LOG="$LAST_LOG_FILE"
 
 wait_for_log "$API_LOG" "Listening on"
@@ -117,7 +117,7 @@ sleep "${DEMO_SETTLE_SECONDS:-10}"
 echo "Uploading sample content..."
 UPLOAD_OUTPUT="$(
     cd "$ROOT_DIR"
-    DEMO_EXIT_AFTER_UPLOAD=1 cargo run --quiet --bin client -- upload "$DEMO_INPUT"
+    DEMO_EXIT_AFTER_UPLOAD=1 cargo run --quiet --bin client -- --upload "$DEMO_INPUT"
 )"
 echo "$UPLOAD_OUTPUT"
 
@@ -132,7 +132,7 @@ fi
 echo "Downloading sample content..."
 (
     cd "$ROOT_DIR"
-    cargo run --quiet --bin client -- download "$LOCATION" "$SIGNATURE"
+    cargo run --quiet --bin client -- --download "$LOCATION" "$SIGNATURE"
 )
 
 echo "Demo completed successfully."
