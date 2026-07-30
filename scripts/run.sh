@@ -6,11 +6,18 @@ DEMO_DIR="$(mktemp -d "${TMPDIR:-/tmp}/distributed-fs-demo.XXXXXX")"
 LOG_DIR="$DEMO_DIR/logs"
 DEMO_INPUT="$DEMO_DIR/sample"
 PIDS=()
+TAIL_PIDS=()
 LAST_LOG_FILE=""
 
 cleanup() {
     local pid
     for pid in "${PIDS[@]:-}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+
+    for pid in "${TAIL_PIDS[@]:-}"; do
         if kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null || true
         fi
@@ -63,6 +70,13 @@ start_node() {
     : > "$log_file"
 
     (
+        tail -n 0 -F "$log_file" | while IFS= read -r line; do
+            printf '[%s] %s\n' "$name" "$line"
+        done
+    ) &
+    TAIL_PIDS+=("$!")
+
+    (
         cd "$ROOT_DIR"
         "$@"
     ) >"$log_file" 2>&1 &
@@ -93,7 +107,7 @@ STORAGE_A_LOG="$LAST_LOG_FILE"
 start_node storage-b cargo run --quiet --bin gnostr-p2p -- storage 127.0.0.1
 STORAGE_B_LOG="$LAST_LOG_FILE"
 
-wait_for_log "$API_LOG" "gRPC server listening on"
+wait_for_log "$API_LOG" "Listening on"
 wait_for_log "$STORAGE_A_LOG" "Listening on"
 wait_for_log "$STORAGE_B_LOG" "Listening on"
 
