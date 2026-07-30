@@ -29,12 +29,11 @@ listen-onion-service = [
 ]
 
 [dependencies]
-prost = "0.9"
+prost = "0.13"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 serde_yaml = "0.9"
-tonic = "0.6.2"
-tonic-build = "0.14.6"
+tonic = "0.12.3"
 async-trait = "0.1.53"
 secp256k1 = { version = "0.22.1", features = ["rand-std", "std", "bitcoin_hashes"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -132,5 +131,5 @@ tracing-subscriber = { version = "0.3.22", default-features = false, features = 
 ] }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-build = "0.12.3"
 # warp = { workspace = true }
