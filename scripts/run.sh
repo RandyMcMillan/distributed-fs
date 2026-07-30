@@ -111,6 +111,9 @@ wait_for_log "$API_LOG" "Listening on"
 wait_for_log "$STORAGE_A_LOG" "Listening on"
 wait_for_log "$STORAGE_B_LOG" "Listening on"
 
+echo "Allowing peer discovery to stabilize..."
+sleep "${DEMO_SETTLE_SECONDS:-10}"
+
 echo "Uploading sample content..."
 UPLOAD_OUTPUT="$(
     cd "$ROOT_DIR"
